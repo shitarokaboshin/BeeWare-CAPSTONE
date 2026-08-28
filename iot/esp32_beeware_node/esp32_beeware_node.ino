@@ -20,8 +20,8 @@
 #include <base64.h>
 
 // ======================== CONFIGURATION ========================
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID     = "GFiber_3EA45";
+const char* WIFI_PASSWORD = "XTF2eTAR";
 
 // Backend API URL (e.g., http://192.168.1.100:8000/telemetry or production server)
 const char* BACKEND_URL   = "http://192.168.1.100:8000/telemetry";
