@@ -5,8 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/beehive_icon.dart';
 import 'hive_detail_screen.dart';
 import 'hive_management_screen.dart';
-import 'edit_hive_screen.dart';
-import 'node_provisioning_screen.dart';
+import 'qr_hive_scanner_screen.dart';
 
 class HivesScreen extends StatefulWidget {
   const HivesScreen({super.key});
@@ -20,108 +19,8 @@ class _HivesScreenState extends State<HivesScreen> {
   String _searchQuery = '';
 
   void _showAddHiveOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Add / Pair Hive',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.black),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // Option 1: BLE Provisioning
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF9C4),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black, width: 1.5),
-                ),
-                child: ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFCC00),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.black, width: 1.2),
-                    ),
-                    child: const Icon(Icons.bluetooth_searching, color: Colors.black, size: 24),
-                  ),
-                  title: const Text(
-                    'Pair IoT Node (BLE SmartConfig)',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Colors.black),
-                  ),
-                  subtitle: const Text(
-                    'Search & send Wi-Fi credentials to ESP32 node',
-                    style: TextStyle(fontSize: 11, color: Colors.black54),
-                  ),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.black),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const NodeProvisioningScreen()),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Option 2: Manual Add
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black26, width: 1.2),
-                ),
-                child: ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.black26, width: 1),
-                    ),
-                    child: const Icon(Icons.edit_note, color: Colors.black, size: 24),
-                  ),
-                  title: const Text(
-                    'Add Hive Manually',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Colors.black),
-                  ),
-                  subtitle: const Text(
-                    'Create hive profile without physical sensor pairing',
-                    style: TextStyle(fontSize: 11, color: Colors.black54),
-                  ),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.black45),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const EditHiveScreen()),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const QrHiveScannerScreen()),
     );
   }
 

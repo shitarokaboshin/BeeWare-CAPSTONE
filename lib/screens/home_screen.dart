@@ -4,17 +4,23 @@ import '../services/hive_service.dart';
 import '../services/user_profile_service.dart';
 import '../services/alert_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/backend_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/circular_gauge.dart';
 import 'alert_details_screen.dart';
 import 'overall_health_assessment_screen.dart';
 import 'user_profile_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final VoidCallback? onOpenAlerts;
 
   const HomeScreen({super.key, this.onOpenAlerts});
 
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -103,7 +109,7 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                   GestureDetector(
-                    onTap: onOpenAlerts,
+                    onTap: widget.onOpenAlerts,
                     child: AnimatedBuilder(
                       animation: AlertService(),
                       builder: (context, child) {
@@ -151,6 +157,10 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: const Color(0xFFFFCC00),
         onRefresh: () async {
           await ConnectivityService().checkConnection();
+          final records = await BackendService().fetchTelemetryRecords(limit: 20);
+          if (records.isNotEmpty) {
+            HiveService().updateFromBackendTelemetry(records);
+          }
           if (ConnectivityService().isOnline) {
             await HiveService().refreshFromCloud();
             await AlertService().refreshFromCloud();

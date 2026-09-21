@@ -41,7 +41,8 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                 healthScore: 90,
                 temperature: '--',
                 humidity: '--',
-                acoustic: 'Normal Activity',
+                acoustic: '0 Hz',
+                acousticStatus: 'Not Detected (0 Hz)',
                 updated: 'Just now',
                 isAlert: false,
                 alertLabel: 'Queen Present',
@@ -54,6 +55,8 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
     _pageController.dispose();
     super.dispose();
   }
+
+
 
   void _onTabTapped(int index) {
     if (_selectedTab != index) {
@@ -193,12 +196,90 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
 
   // ---------------- TAB 1: OVERVIEW ----------------
   Widget _buildOverviewTab() {
-    final tempVal = double.tryParse(_hive.temperature.replaceAll('°C', '').trim()) ?? 34.2;
-    final humVal = double.tryParse(_hive.humidity.replaceAll('%', '').trim()) ?? 64.0;
+    final parsedTemp = double.tryParse(_hive.temperature.replaceAll('°C', '').trim());
+    final parsedHum = double.tryParse(_hive.humidity.replaceAll('%', '').trim());
+    final tempVal = parsedTemp ?? 34.2;
+    final humVal = parsedHum ?? 64.0;
+    final hasRealTemp = _hive.temperature != '--';
+    final hasRealHum = _hive.humidity != '--';
+    final isConnecting = _hive.conditionLabel.toLowerCase().contains('connect') || !hasRealTemp || !hasRealHum;
+
+    final isTempNotDetected = (parsedTemp != null && parsedTemp <= 0.0) || _hive.temperature == '0.0' || _hive.temperature == '0';
+    final isHumNotDetected = (parsedHum != null && parsedHum <= 0.0) || _hive.humidity == '0.0' || _hive.humidity == '0';
+    final acousticClean = _hive.acoustic.trim().toLowerCase();
+    final isAcousticNotDetected = acousticClean == '0' ||
+        acousticClean == '0 hz' ||
+        acousticClean.startsWith('0 ') ||
+        _hive.acousticStatus.toLowerCase().contains('not detected');
+    final hasSensorNotDetected = isTempNotDetected || isHumNotDetected || isAcousticNotDetected;
+
+    String overviewDesc;
+    String conditionActionDesc;
+
+    if (isConnecting) {
+      overviewDesc = 'ESP32 IoT node paired. Live sensor telemetry streaming to backend.';
+      conditionActionDesc = 'Awaiting Telemetry Stream.\nSensor calibration in progress.';
+    } else if (_hive.conditionLabel.toLowerCase().contains('absent')) {
+      overviewDesc = 'Acoustic frequency indicates Queenless Roar. Urgent frame inspection needed.';
+      conditionActionDesc = 'Urgent Intervention Required.\nInspect brood frames for queen cells.';
+    } else if (_hive.conditionLabel.toLowerCase().contains('rejected')) {
+      overviewDesc = 'High agitation buzzing detected. Workers rejecting introduced queen.';
+      conditionActionDesc = 'Worker Agitation Detected.\nInspect slow-release cage.';
+    } else if (_hive.conditionLabel.toLowerCase().contains('accepted')) {
+      overviewDesc = 'Colony piping harmony confirmed. Queen accepted into hive.';
+      conditionActionDesc = 'Colony Harmonious.\nAvoid disturbing brood nest for 5 days.';
+    } else {
+      overviewDesc = 'The colony is queenright and showing normal healthy behavior.';
+      conditionActionDesc = 'Colony Stable.\nContinue regular routine monitoring.';
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Sensor Not Detected Alert Banner
+        if (hasSensorNotDetected)
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEE),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFEF5350), width: 1.2),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sensor Not Detected Alert',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFC62828)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (isTempNotDetected) '• Temperature sensor not detected (0.0°C)',
+                          if (isHumNotDetected) '• Humidity sensor not detected (0%)',
+                          if (isAcousticNotDetected) '• Acoustic microphone not detected (0 Hz)',
+                        ].join('\n'),
+                        style: const TextStyle(fontSize: 12, color: Color(0xFFB71C1C), height: 1.3),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Inspect physical sensor wiring and power on the ESP32 node.',
+                        style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Card 1: AI Colony Health Assessment
         Container(
           padding: const EdgeInsets.all(16.0),
@@ -233,13 +314,13 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'The colony is healthy and is showing normal behavior.',
-                          style: TextStyle(fontSize: 12, color: Colors.black87, height: 1.2),
+                        Text(
+                          overviewDesc,
+                          style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.2),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Confidence: ${_hive.confidence}%',
+                          _hive.confidence > 0 ? 'Confidence: ${_hive.confidence}%' : 'Confidence: Analysis In Progress',
                           style: const TextStyle(fontSize: 11, color: Colors.black54),
                         ),
                       ],
@@ -283,9 +364,9 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    const Text(
-                      'No Intervention Required.\nContinue Monitoring.',
-                      style: TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
+                    Text(
+                      conditionActionDesc,
+                      style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
                     ),
                   ],
                 ),
@@ -341,8 +422,14 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${_hive.temperature}°C',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.black),
+                          isTempNotDetected
+                              ? '0.0°C (Not Detected)'
+                              : (_hive.temperature.contains('-') ? '--' : '${_hive.temperature}°C'),
+                          style: TextStyle(
+                            fontSize: isTempNotDetected ? 13 : 15,
+                            fontWeight: FontWeight.w900,
+                            color: isTempNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                          ),
                         ),
                       ],
                     ),
@@ -374,8 +461,14 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${_hive.humidity}%',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.black),
+                          isHumNotDetected
+                              ? '0% (Not Detected)'
+                              : (_hive.humidity.contains('-') ? '--' : '${_hive.humidity}%'),
+                          style: TextStyle(
+                            fontSize: isHumNotDetected ? 13 : 15,
+                            fontWeight: FontWeight.w900,
+                            color: isHumNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                          ),
                         ),
                       ],
                     ),
@@ -408,8 +501,12 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _hive.acoustic,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.black),
+                            isAcousticNotDetected ? '0 Hz (Not Detected)' : _hive.acoustic,
+                            style: TextStyle(
+                              fontSize: isAcousticNotDetected ? 13 : 13,
+                              fontWeight: FontWeight.w900,
+                              color: isAcousticNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -419,6 +516,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                     AcousticSignalVisualizer(
                       conditionLabel: _hive.conditionLabel,
                       acousticStatus: _hive.acousticStatus,
+                      acoustic: _hive.acoustic,
                     ),
                   ],
                 ),
@@ -432,12 +530,67 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
 
   // ---------------- TAB 2: SENSORS ----------------
   Widget _buildSensorsTab() {
-    final tempVal = double.tryParse(_hive.temperature.replaceAll('°C', '').trim()) ?? 34.2;
-    final humVal = double.tryParse(_hive.humidity.replaceAll('%', '').trim()) ?? 64.0;
+    final parsedTemp = double.tryParse(_hive.temperature.replaceAll('°C', '').trim());
+    final parsedHum = double.tryParse(_hive.humidity.replaceAll('%', '').trim());
+    final tempVal = parsedTemp ?? 34.2;
+    final humVal = parsedHum ?? 64.0;
+
+    final isTempNotDetected = (parsedTemp != null && parsedTemp <= 0.0) || _hive.temperature == '0.0' || _hive.temperature == '0';
+    final isHumNotDetected = (parsedHum != null && parsedHum <= 0.0) || _hive.humidity == '0.0' || _hive.humidity == '0';
+    final acousticClean = _hive.acoustic.trim().toLowerCase();
+    final isAcousticNotDetected = acousticClean == '0' ||
+        acousticClean == '0 hz' ||
+        acousticClean.startsWith('0 ') ||
+        _hive.acousticStatus.toLowerCase().contains('not detected');
+    final hasSensorNotDetected = isTempNotDetected || isHumNotDetected || isAcousticNotDetected;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Sensor Not Detected Alert Banner
+        if (hasSensorNotDetected)
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEE),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFEF5350), width: 1.2),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sensor Not Detected Alert',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFC62828)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (isTempNotDetected) '• Temperature sensor not detected (0.0°C)',
+                          if (isHumNotDetected) '• Humidity sensor not detected (0%)',
+                          if (isAcousticNotDetected) '• Acoustic microphone not detected (0 Hz)',
+                        ].join('\n'),
+                        style: const TextStyle(fontSize: 12, color: Color(0xFFB71C1C), height: 1.3),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Inspect physical sensor wiring and power on the ESP32 node.',
+                        style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Temperature Card
         Container(
           padding: const EdgeInsets.all(16.0),
@@ -460,15 +613,25 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                             const Icon(Icons.thermostat, size: 34, color: Color(0xFFE65100)),
                             const SizedBox(width: 8),
                             Text(
-                              '${_hive.temperature}°C',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.black),
+                              isTempNotDetected
+                                  ? '0.0°C (Not Detected)'
+                                  : (_hive.temperature.contains('-') ? '--' : '${_hive.temperature}°C'),
+                              style: TextStyle(
+                                fontSize: isTempNotDetected ? 18 : 22,
+                                fontWeight: FontWeight.w900,
+                                color: isTempNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          'Normal Range: 30°C - 40°C',
-                          style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+                        Text(
+                          isTempNotDetected ? '⚠️ Check DHT22 Data Wire (GPIO 4)' : 'Normal Range: 30°C - 40°C',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isTempNotDetected ? const Color(0xFFD32F2F) : Colors.black54,
+                            fontWeight: isTempNotDetected ? FontWeight.w700 : FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -506,15 +669,25 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                             const Icon(Icons.water_drop_outlined, size: 34, color: Color(0xFF0288D1)),
                             const SizedBox(width: 8),
                             Text(
-                              '${_hive.humidity}%',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.black),
+                              isHumNotDetected
+                                  ? '0% (Not Detected)'
+                                  : (_hive.humidity.contains('-') ? '--' : '${_hive.humidity}%'),
+                              style: TextStyle(
+                                fontSize: isHumNotDetected ? 18 : 22,
+                                fontWeight: FontWeight.w900,
+                                color: isHumNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          'Normal Range: 50% - 70%',
-                          style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+                        Text(
+                          isHumNotDetected ? '⚠️ Check DHT22 Data Wire (GPIO 4)' : 'Normal Range: 50% - 70%',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isHumNotDetected ? const Color(0xFFD32F2F) : Colors.black54,
+                            fontWeight: isHumNotDetected ? FontWeight.w700 : FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -553,8 +726,12 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                _hive.acoustic,
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.black),
+                                isAcousticNotDetected ? '0 Hz (Not Detected)' : _hive.acoustic,
+                                style: TextStyle(
+                                  fontSize: isAcousticNotDetected ? 14 : 15,
+                                  fontWeight: FontWeight.w900,
+                                  color: isAcousticNotDetected ? const Color(0xFFD32F2F) : Colors.black,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -562,8 +739,12 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Status: ${_hive.acousticStatus}',
-                          style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+                          isAcousticNotDetected ? 'Status: Not Detected (0 Hz)' : 'Status: ${_hive.acousticStatus}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isAcousticNotDetected ? const Color(0xFFD32F2F) : Colors.black54,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -572,6 +753,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                   AcousticSignalVisualizer(
                     conditionLabel: _hive.conditionLabel,
                     acousticStatus: _hive.acousticStatus,
+                    acoustic: _hive.acoustic,
                   ),
                 ],
               ),
@@ -698,7 +880,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
         // Explanation Card
         Container(
           padding: const EdgeInsets.all(16.0),
-          decoration: AppStyles.cardDecoration(color: AppColors.healthyGreenBg),
+          decoration: AppStyles.cardDecoration(color: _hive.labelBgColor),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -772,7 +954,21 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
     );
   }
 
+  Color _getConditionActiveColor(String conditionName) {
+    final lower = conditionName.toLowerCase();
+    if (lower.contains('present')) return AppColors.queenPresentGreen;
+    if (lower.contains('absent')) return AppColors.queenAbsentRed;
+    if (lower.contains('accepted')) return AppColors.queenAcceptedBlue;
+    if (lower.contains('rejected')) return AppColors.queenRejectedOrange;
+    return AppColors.healthyGreen;
+  }
+
   Widget _conditionDetectRow(String conditionName, bool isDetected) {
+    final activeColor = _getConditionActiveColor(conditionName);
+    final dotColor = isDetected ? activeColor : Colors.grey.shade400;
+    final titleColor = isDetected ? Colors.black : Colors.grey.shade600;
+    final statusColor = isDetected ? activeColor : Colors.grey.shade500;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -782,14 +978,18 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
               width: 10,
               height: 10,
               decoration: BoxDecoration(
-                color: isDetected ? Colors.red : AppColors.healthyGreen,
+                color: dotColor,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 8),
             Text(
               conditionName,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isDetected ? FontWeight.w800 : FontWeight.w600,
+                color: titleColor,
+              ),
             ),
           ],
         ),
@@ -798,7 +998,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
           textAlign: TextAlign.right,
           style: TextStyle(
             fontSize: 11,
-            color: isDetected ? Colors.red : Colors.black54,
+            color: statusColor,
             fontWeight: FontWeight.bold,
           ),
         ),

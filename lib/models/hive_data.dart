@@ -38,6 +38,7 @@ class HiveData {
   final String alertTime;
   final String detectedBy;
   final String alertRecommendation;
+  final String? audioFilePath;
 
   HiveData({
     required this.id,
@@ -63,34 +64,19 @@ class HiveData {
     this.queenRejectedDetected = false,
     this.recommendation =
         'Continue routine monitoring. No intervention required.',
-    this.historyDates = const [
-      'May 10',
-      'May 11',
-      'May 12',
-      'May 13',
-      'May 14',
-      'May 15',
-      'May 16'
-    ],
-    this.temperatureHistory = const [34, 34.5, 35, 34.2, 34.8, 35.1, 34.6],
-    this.humidityHistory = const [60, 62, 65, 64, 63, 65, 66],
-    this.acousticHistory = const [50, 45, 66, 70, 60, 50, 55],
-    this.conditionTimeline = const [
-      {'date': 'May 10', 'status': 'Queen Present'},
-      {'date': 'May 11', 'status': 'Queen Present'},
-      {'date': 'May 12', 'status': 'Queen Accepted'},
-      {'date': 'May 13', 'status': 'Queen Present'},
-      {'date': 'May 14', 'status': 'Queen Present'},
-      {'date': 'May 15', 'status': 'Queen Absent'},
-      {'date': 'May 16', 'status': 'Queen Present'},
-    ],
+    this.historyDates = const [],
+    this.temperatureHistory = const [],
+    this.humidityHistory = const [],
+    this.acousticHistory = const [],
+    this.conditionTimeline = const [],
     required this.isAlert,
     this.alertSeverity = 'Info',
-    required this.alertLabel,
+    this.alertLabel = 'Normal',
     required this.alertMessage,
     this.alertTime = 'Just now',
     this.detectedBy = 'AI Acoustic Analysis',
     this.alertRecommendation = 'Continue regular inspection routine.',
+    this.audioFilePath,
   });
 
   Color get labelColor {
@@ -162,6 +148,7 @@ class HiveData {
     String? alertTime,
     String? detectedBy,
     String? alertRecommendation,
+    String? audioFilePath,
   }) {
     return HiveData(
       id: id ?? this.id,
@@ -197,6 +184,7 @@ class HiveData {
       alertTime: alertTime ?? this.alertTime,
       detectedBy: detectedBy ?? this.detectedBy,
       alertRecommendation: alertRecommendation ?? this.alertRecommendation,
+      audioFilePath: audioFilePath ?? this.audioFilePath,
     );
   }
 
@@ -244,13 +232,10 @@ class HiveData {
                   : 'Colony is queenright and stable. Continue regular monitoring.')),
       historyDates: data['historyDates'] != null
           ? List<String>.from(data['historyDates'])
-          : const ['May 10', 'May 11', 'May 12', 'May 13', 'May 14', 'May 15', 'May 16'],
-      temperatureHistory: parseDoubleList(
-          data['temperatureHistory'], const [34, 34.5, 35, 34.2, 34.8, 35.1, 34.6]),
-      humidityHistory:
-          parseDoubleList(data['humidityHistory'], const [60, 62, 65, 64, 63, 65, 66]),
-      acousticHistory:
-          parseDoubleList(data['acousticHistory'], const [50, 45, 66, 70, 60, 50, 55]),
+          : const [],
+      temperatureHistory: parseDoubleList(data['temperatureHistory'], const []),
+      humidityHistory: parseDoubleList(data['humidityHistory'], const []),
+      acousticHistory: parseDoubleList(data['acousticHistory'], const []),
       isAlert: data['isAlert'] ?? (isAbsent || isRejected),
       alertSeverity: data['alertSeverity'] ?? (isAbsent ? 'Critical' : (isRejected ? 'Warning' : 'Info')),
       alertLabel: data['alertLabel'] ?? condition,
@@ -263,6 +248,7 @@ class HiveData {
               : (isRejected
                   ? 'Check release cage and examine worker agitation.'
                   : 'Continue regular inspection routine.')),
+      audioFilePath: data['audioFilePath'] ?? data['audio_file_path'],
     );
   }
 
@@ -298,6 +284,7 @@ class HiveData {
       'alertTime': alertTime,
       'detectedBy': detectedBy,
       'alertRecommendation': alertRecommendation,
+      'audioFilePath': audioFilePath,
     };
   }
 
@@ -321,14 +308,14 @@ class HiveData {
       healthScore: 95,
       temperature: '34.2',
       humidity: '64',
-      acoustic: 'Normal Queen Piping',
+      acoustic: '205 Hz',
       acousticStatus: 'Stable',
       wifiStatus: 'Connected',
       batteryLevel: '95%',
       updated: 'Just Now',
       signalBars: 4,
       explanation:
-          'The AI acoustic model detected stable queen piping frequencies and normal hive hum, confirming Queen Presence.',
+          'The AI acoustic model detected stable queen piping frequencies (205 Hz) and normal hive hum, confirming Queen Presence.',
       queenPresentDetected: true,
       queenAbsentDetected: false,
       queenAcceptedDetected: false,
@@ -353,14 +340,14 @@ class HiveData {
       healthScore: 88,
       temperature: '34.8',
       humidity: '62',
-      acoustic: 'Acceptance Harmony',
+      acoustic: '240 Hz',
       acousticStatus: 'Normal',
       wifiStatus: 'Connected',
       batteryLevel: '85%',
       updated: '2 mins ago',
       signalBars: 4,
       explanation:
-          'Acoustic frequencies and worker hum indicate that the newly introduced queen was successfully accepted.',
+          'Acoustic frequencies (240 Hz) and worker hum indicate that the newly introduced queen was successfully accepted.',
       queenPresentDetected: false,
       queenAbsentDetected: false,
       queenAcceptedDetected: true,
@@ -386,14 +373,14 @@ class HiveData {
       healthScore: 45,
       temperature: '32.1',
       humidity: '55',
-      acoustic: 'Queenless Roar',
+      acoustic: '380 Hz',
       acousticStatus: 'Abnormal',
       wifiStatus: 'Connected',
       batteryLevel: '78%',
       updated: '1 min ago',
       signalBars: 3,
       explanation:
-          'Acoustic signature shows characteristic queenless roar and absence of queen piping signals.',
+          'Acoustic signature shows characteristic queenless roar (380 Hz) and absence of queen piping signals.',
       queenPresentDetected: false,
       queenAbsentDetected: true,
       queenAcceptedDetected: false,
@@ -419,7 +406,7 @@ class HiveData {
       healthScore: 35,
       temperature: '37.5',
       humidity: '58',
-      acoustic: 'Agitation Buzzing',
+      acoustic: '420 Hz',
       acousticStatus: 'High Distress',
       wifiStatus: 'Connected',
       batteryLevel: '92%',

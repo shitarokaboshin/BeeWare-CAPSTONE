@@ -102,6 +102,79 @@ class AlertService extends ChangeNotifier {
     // 2. Derive alerts from live HiveData in HiveService
     final hives = HiveService().hives;
     for (final h in hives) {
+      // Missing sensor diagnostics (temp <= 0.0, hum <= 0.0, acoustic 0 Hz)
+      final tempVal = double.tryParse(h.temperature.replaceAll('°C', '').trim());
+      final isTempNotDetected = (tempVal != null && tempVal <= 0.0) || h.temperature == '0.0' || h.temperature == '0';
+
+      final humVal = double.tryParse(h.humidity.replaceAll('%', '').trim());
+      final isHumNotDetected = (humVal != null && humVal <= 0.0) || h.humidity == '0.0' || h.humidity == '0';
+
+      final acousticClean = h.acoustic.trim().toLowerCase();
+      final isAcousticNotDetected = acousticClean == '0' ||
+          acousticClean == '0 hz' ||
+          acousticClean.startsWith('0 ') ||
+          h.acousticStatus.toLowerCase().contains('not detected');
+
+      if (isTempNotDetected) {
+        final alertId = 'sensor_temp_not_detected_${h.id}';
+        if (!seenIds.contains(alertId)) {
+          seenIds.add(alertId);
+          result.add(
+            AlertModel(
+              id: alertId,
+              hiveId: h.name,
+              queenStatus: h.conditionLabel,
+              title: '⚠️ Temperature Sensor Not Detected',
+              message: 'Temperature sensor on ${h.name} (${h.deviceId}) is returning 0.0 °C. Check DHT22 connection.',
+              severity: 'Critical',
+              timestamp: DateTime.now(),
+              recommendation: 'Inspect DHT22 data pin (GPIO 4), 10k pull-up resistor, and 3.3V power line.',
+              detectedBy: 'Hardware Sensor Diagnostics',
+            ),
+          );
+        }
+      }
+
+      if (isHumNotDetected) {
+        final alertId = 'sensor_hum_not_detected_${h.id}';
+        if (!seenIds.contains(alertId)) {
+          seenIds.add(alertId);
+          result.add(
+            AlertModel(
+              id: alertId,
+              hiveId: h.name,
+              queenStatus: h.conditionLabel,
+              title: '⚠️ Humidity Sensor Not Detected',
+              message: 'Humidity sensor on ${h.name} (${h.deviceId}) is returning 0%. Check DHT22 connection.',
+              severity: 'Warning',
+              timestamp: DateTime.now(),
+              recommendation: 'Inspect DHT22 sensor pin (GPIO 4) and verify contacts are clean and dry.',
+              detectedBy: 'Hardware Sensor Diagnostics',
+            ),
+          );
+        }
+      }
+
+      if (isAcousticNotDetected) {
+        final alertId = 'sensor_acoustic_not_detected_${h.id}';
+        if (!seenIds.contains(alertId)) {
+          seenIds.add(alertId);
+          result.add(
+            AlertModel(
+              id: alertId,
+              hiveId: h.name,
+              queenStatus: h.conditionLabel,
+              title: '⚠️ Acoustic Signal Not Detected (0 Hz)',
+              message: 'Acoustic microphone on ${h.name} (${h.deviceId}) is detecting 0 Hz (silent or disconnected).',
+              severity: 'Critical',
+              timestamp: DateTime.now(),
+              recommendation: 'Verify INMP441 I2S wiring: BCLK (GPIO 14), WS (GPIO 15), SD (GPIO 32), and L/R to GND.',
+              detectedBy: 'INMP441 Microphone Diagnostics',
+            ),
+          );
+        }
+      }
+
       if (h.isAlert ||
           h.alertSeverity.toLowerCase() == 'critical' ||
           h.alertSeverity.toLowerCase() == 'warning' ||

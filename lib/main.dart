@@ -13,6 +13,7 @@ import 'services/alert_service.dart';
 import 'services/user_profile_service.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
+import 'services/backend_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/offline_screen.dart';
 import 'theme/app_theme.dart';
@@ -124,6 +125,10 @@ class _MainNavigationState extends State<MainNavigation> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _selectedIndex);
+
+    // Start HTTP polling for live ESP32 SQLite telemetry
+    BackendService().startTelemetryPolling(interval: const Duration(seconds: 4));
+
     // 1. Foreground in-app notification banner
     _msgSub = FirebaseService().onMessageStream.listen((message) {
       if (!mounted) return;
@@ -194,6 +199,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   void dispose() {
+    BackendService().stopTelemetryPolling();
     _pageController.dispose();
     _msgSub?.cancel();
     _msgOpenedSub?.cancel();
