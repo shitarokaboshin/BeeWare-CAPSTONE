@@ -298,10 +298,10 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
               Row(
                 children: [
                   CircularGauge(
-                    percentage: _hive.healthScore.toDouble(),
+                    percentage: isAcousticNotDetected ? 0.0 : _hive.healthScore.toDouble(),
                     size: 78,
                     strokeWidth: 9,
-                    progressColor: _hive.labelColor,
+                    progressColor: isAcousticNotDetected ? const Color(0xFFD32F2F) : _hive.labelColor,
                   ),
                   const SizedBox(width: 18),
                   Expanded(
@@ -310,7 +310,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                       children: [
                         Text(
                           isAcousticNotDetected
-                              ? '${_hive.conditionLabel} • No Buzz'
+                              ? 'No Buzz Detected'
                               : _hive.conditionLabel,
                           style: TextStyle(
                             fontSize: 16,
@@ -325,7 +325,9 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _hive.confidence > 0 ? 'Confidence: ${_hive.confidence}%' : 'Confidence: Analysis In Progress',
+                          isAcousticNotDetected
+                              ? 'Confidence: 0%'
+                              : (_hive.confidence > 0 ? 'Confidence: ${_hive.confidence}%' : 'Confidence: Analysis In Progress'),
                           style: const TextStyle(fontSize: 11, color: Colors.black54),
                         ),
                         if (isAcousticNotDetected) ...[
@@ -382,15 +384,15 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _hive.labelBgColor,
+                        color: isAcousticNotDetected ? const Color(0xFFFFEBEE) : _hive.labelBgColor,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        _hive.conditionLabel,
+                        isAcousticNotDetected ? 'No Buzz Detected' : _hive.conditionLabel,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
-                          color: _hive.labelColor,
+                          color: isAcousticNotDetected ? const Color(0xFFC62828) : _hive.labelColor,
                         ),
                       ),
                     ),
@@ -890,7 +892,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        isAcousticNotDetected ? '${_hive.conditionLabel} • No Buzz' : _hive.conditionLabel,
+                        isAcousticNotDetected ? 'No Buzz Detected' : _hive.conditionLabel,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
@@ -900,7 +902,7 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Confidence: ${_hive.confidence}%',
+                      isAcousticNotDetected ? 'Confidence: 0%' : 'Confidence: ${_hive.confidence}%',
                       style: const TextStyle(fontSize: 11, color: Colors.black54),
                     ),
                     if (isAcousticNotDetected) ...[
