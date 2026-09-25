@@ -960,25 +960,88 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Detected Colony Conditions',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Detected Colony Conditions',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black),
+                  ),
+                  if (isAcousticNotDetected)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Text(
+                        'Offline / Inactive',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const Divider(color: Colors.black12, height: 18),
-              _conditionDetectRow('Queen Present', _hive.queenPresentDetected),
+              _conditionDetectRow(
+                'Queen Present',
+                isAcousticNotDetected ? false : _hive.queenPresentDetected,
+                isDimmed: isAcousticNotDetected,
+              ),
               const Divider(color: Colors.black12, height: 18),
-              _conditionDetectRow('Queen Absent', _hive.queenAbsentDetected),
+              _conditionDetectRow(
+                'Queen Absent',
+                isAcousticNotDetected ? false : _hive.queenAbsentDetected,
+                isDimmed: isAcousticNotDetected,
+              ),
               const Divider(color: Colors.black12, height: 18),
-              _conditionDetectRow('Queen Accepted', _hive.queenAcceptedDetected),
+              _conditionDetectRow(
+                'Queen Accepted',
+                isAcousticNotDetected ? false : _hive.queenAcceptedDetected,
+                isDimmed: isAcousticNotDetected,
+              ),
               const Divider(color: Colors.black12, height: 18),
-              _conditionDetectRow('Queen Rejected', _hive.queenRejectedDetected),
-              const Divider(color: Colors.black12, height: 18),
+              _conditionDetectRow(
+                'Queen Rejected',
+                isAcousticNotDetected ? false : _hive.queenRejectedDetected,
+                isDimmed: isAcousticNotDetected,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Separate Colony Acoustic Buzz Card (Below Detected Colony Conditions)
+        Container(
+          padding: const EdgeInsets.all(16.0),
+          decoration: AppStyles.cardDecoration(
+            color: Colors.white,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               _conditionDetectRow(
                 'Colony Acoustic Buzz',
                 !isAcousticNotDetected,
                 overrideStatusText: isAcousticNotDetected ? 'No Buzz\nDetected' : 'Buzzing\nDetected',
                 overrideColor: isAcousticNotDetected ? const Color(0xFFD32F2F) : AppColors.healthyGreen,
               ),
+              if (isAcousticNotDetected) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Colony acoustics are currently silent (0 Hz). Ensure the microphone is connected to enable audio-based condition detection.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFFD32F2F),
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1146,46 +1209,58 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
     bool isDetected, {
     String? overrideStatusText,
     Color? overrideColor,
+    bool isDimmed = false,
   }) {
     final activeColor = overrideColor ?? _getConditionActiveColor(conditionName);
-    final dotColor = isDetected ? activeColor : (overrideColor ?? Colors.grey.shade400);
-    final titleColor = isDetected ? Colors.black : Colors.grey.shade600;
-    final statusColor = isDetected ? activeColor : (overrideColor ?? Colors.grey.shade500);
+    final dotColor = isDimmed
+        ? Colors.grey.shade400
+        : (isDetected ? activeColor : (overrideColor ?? Colors.grey.shade400));
+    final titleColor = isDimmed
+        ? Colors.grey.shade500
+        : (isDetected ? Colors.black : Colors.grey.shade600);
+    final statusColor = isDimmed
+        ? Colors.grey.shade400
+        : (isDetected ? activeColor : (overrideColor ?? Colors.grey.shade500));
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: dotColor,
-                shape: BoxShape.circle,
+    return Opacity(
+      opacity: isDimmed ? 0.55 : 1.0,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              conditionName,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isDetected ? FontWeight.w800 : FontWeight.w600,
-                color: titleColor,
+              const SizedBox(width: 8),
+              Text(
+                conditionName,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: (isDetected && !isDimmed) ? FontWeight.w800 : FontWeight.w600,
+                  color: titleColor,
+                ),
               ),
-            ),
-          ],
-        ),
-        Text(
-          overrideStatusText ?? (isDetected ? 'Detected' : 'Not\nDetected'),
-          textAlign: TextAlign.right,
-          style: TextStyle(
-            fontSize: 11,
-            color: statusColor,
-            fontWeight: FontWeight.bold,
+            ],
           ),
-        ),
-      ],
+          Text(
+            isDimmed
+                ? 'Not\nDetected'
+                : (overrideStatusText ?? (isDetected ? 'Detected' : 'Not\nDetected')),
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontSize: 11,
+              color: statusColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

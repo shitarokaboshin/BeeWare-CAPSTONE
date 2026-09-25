@@ -4,6 +4,7 @@ import 'package:beeware_app/models/hive_data.dart';
 import 'package:beeware_app/services/alert_service.dart';
 import 'package:beeware_app/services/hive_service.dart';
 import 'package:beeware_app/widgets/sensor_visualizers.dart';
+import 'package:beeware_app/screens/hive_detail_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +160,39 @@ void main() {
       );
 
       expect(find.text('0 Hz • Not Detected'), findsOneWidget);
+    });
+
+    testWidgets('HiveDetailScreen greys out conditions and shows separated acoustic card when 0 Hz', (tester) async {
+      final silentHive = HiveData(
+        id: 'silent_hive_test',
+        name: 'Silent Test Hive',
+        deviceId: 'BW-SILENT',
+        conditionLabel: 'Queen Present',
+        confidence: 88,
+        healthScore: 80,
+        temperature: '32.0',
+        humidity: '65',
+        acoustic: '0 Hz',
+        acousticStatus: 'Not Detected (0 Hz)',
+        updated: 'Just now',
+        isAlert: false,
+        alertLabel: 'Normal',
+        alertMessage: 'Active',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiveDetailScreen(hive: silentHive, initialTab: 2),
+        ),
+      );
+      await tester.pump();
+
+      // Check for the "Offline / Inactive" badge in Detected Colony Conditions
+      expect(find.text('Offline / Inactive'), findsOneWidget);
+
+      // Check for separated Colony Acoustic Buzz row showing No Buzz Detected
+      expect(find.text('Colony Acoustic Buzz'), findsOneWidget);
+      expect(find.text('No Buzz\nDetected'), findsOneWidget);
     });
   });
 }
