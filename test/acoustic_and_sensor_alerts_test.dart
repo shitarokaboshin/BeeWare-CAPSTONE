@@ -4,6 +4,7 @@ import 'package:beeware_app/models/hive_data.dart';
 import 'package:beeware_app/services/alert_service.dart';
 import 'package:beeware_app/services/hive_service.dart';
 import 'package:beeware_app/widgets/sensor_visualizers.dart';
+import 'package:beeware_app/screens/hive_detail_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +160,84 @@ void main() {
       );
 
       expect(find.text('0 Hz • Not Detected'), findsOneWidget);
+    });
+
+    testWidgets('HiveDetailScreen sets gauge to 0%, removes Queen Present, and displays No Buzz Detected when acoustic is 0 Hz', (tester) async {
+      final silentHive = HiveData(
+        id: 'silent_hive_test_zero',
+        name: 'Silent Test Hive',
+        deviceId: 'BW-SILENT-0',
+        conditionLabel: 'Queen Present',
+        confidence: 90,
+        healthScore: 90,
+        temperature: '32.0',
+        humidity: '65',
+        acoustic: '0 Hz',
+        acousticStatus: 'Not Detected (0 Hz)',
+        updated: 'Just now',
+        isAlert: false,
+        alertLabel: 'Normal',
+        alertMessage: 'Active',
+      );
+
+      // Test Overview tab (initialTab: 0)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiveDetailScreen(hive: silentHive, initialTab: 0),
+        ),
+      );
+      await tester.pump();
+
+      // CircularGauge must show 0%
+      expect(find.text('0%'), findsOneWidget);
+
+      // Title must say "No Buzz Detected" and NOT "Queen Present • No Buzz" or "Queen Present"
+      expect(find.text('No Buzz Detected'), findsWidgets);
+      expect(find.text('Queen Present • No Buzz'), findsNothing);
+
+      // Confidence must show 0%
+      expect(find.text('Confidence: 0%'), findsOneWidget);
+
+      // Red badge
+      expect(find.text('No Buzz Detected (0 Hz)'), findsOneWidget);
+    });
+
+    testWidgets('HiveDetailScreen greys out conditions and shows separated acoustic card when 0 Hz in AI Analysis tab', (tester) async {
+      final silentHive = HiveData(
+        id: 'silent_hive_test_tab2',
+        name: 'Silent Test Hive',
+        deviceId: 'BW-SILENT-2',
+        conditionLabel: 'Queen Present',
+        confidence: 90,
+        healthScore: 90,
+        temperature: '32.0',
+        humidity: '65',
+        acoustic: '0 Hz',
+        acousticStatus: 'Not Detected (0 Hz)',
+        updated: 'Just now',
+        isAlert: false,
+        alertLabel: 'Normal',
+        alertMessage: 'Active',
+      );
+
+      // Test AI analysis tab (initialTab: 2)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HiveDetailScreen(hive: silentHive, initialTab: 2),
+        ),
+      );
+      await tester.pump();
+
+      // Check for the "Offline / Inactive" badge in Detected Colony Conditions
+      expect(find.text('Offline / Inactive'), findsOneWidget);
+
+      // Check for separated Colony Acoustic Buzz row showing No Buzz Detected
+      expect(find.text('Colony Acoustic Buzz'), findsOneWidget);
+      expect(find.text('No Buzz\nDetected'), findsOneWidget);
+
+      // Badge in AI Analysis tab shows No Buzz Detected
+      expect(find.text('No Buzz Detected'), findsOneWidget);
+      expect(find.text('Queen Present • No Buzz'), findsNothing);
     });
   });
 }
