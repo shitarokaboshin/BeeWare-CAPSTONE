@@ -331,9 +331,7 @@ class OverallHealthAssessmentScreen extends StatelessWidget {
   }
 
   Widget _hiveCard(BuildContext context, HiveData hive) {
-    final clean = hive.acoustic.trim().toLowerCase();
-    final isNoBuzz = clean == '0' || clean == '0 hz' || clean.startsWith('0 ') || hive.acousticStatus.toLowerCase().contains('not detected');
-    final badgeColor = isNoBuzz ? const Color(0xFFD32F2F) : hive.labelColor;
+    final badgeColor = hive.labelColor;
 
     return GestureDetector(
       onTap: () {
@@ -350,7 +348,7 @@ class OverallHealthAssessmentScreen extends StatelessWidget {
         child: Row(
           children: [
             CircularGauge(
-              percentage: isNoBuzz ? 0.0 : hive.healthScore.toDouble(),
+              percentage: hive.healthScore.toDouble(),
               size: 54,
               strokeWidth: 6,
               progressColor: badgeColor,
@@ -375,7 +373,7 @@ class OverallHealthAssessmentScreen extends StatelessWidget {
                           border: Border.all(color: badgeColor, width: 1),
                         ),
                         child: Text(
-                          isNoBuzz ? 'No Buzz Detected' : hive.conditionLabel,
+                          hive.conditionLabel,
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: badgeColor),
                         ),
                       ),
