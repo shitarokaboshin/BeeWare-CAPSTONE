@@ -46,7 +46,7 @@ const char* API_KEY       = "beeware_secret_key_default";
 #define BATTERY_PIN         35
 
 // DHT Sensor Config
-#define DHTPIN              27         // Digital GPIO pin connected to DHT data pin
+#define DHTPIN              4         // Digital GPIO pin connected to DHT data pin
 #define DHTTYPE             DHT22     // DHT 22 (AM2302)
 
 DHT dht(DHTPIN, DHTTYPE);
