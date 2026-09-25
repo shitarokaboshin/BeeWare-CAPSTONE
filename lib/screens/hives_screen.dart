@@ -37,8 +37,15 @@ class _HivesScreenState extends State<HivesScreen> {
       builder: (context, child) {
         final allHives = HiveService().hives;
         final filteredHives = allHives.where((h) {
+          final clean = h.acoustic.trim().toLowerCase();
+          final isNoBuzz = clean == '0' ||
+              clean == '0 hz' ||
+              clean.startsWith('0 ') ||
+              h.acousticStatus.toLowerCase().contains('not detected');
+          final displayCondition = isNoBuzz ? 'No Buzz Detected' : h.conditionLabel;
           return h.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              h.conditionLabel.toLowerCase().contains(_searchQuery.toLowerCase());
+              h.conditionLabel.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+              displayCondition.toLowerCase().contains(_searchQuery.toLowerCase());
         }).toList();
 
         return Scaffold(
@@ -204,6 +211,20 @@ class _HivesScreenState extends State<HivesScreen> {
   }
 
   Widget _buildHiveCard(BuildContext context, HiveData hive) {
+    final acousticClean = hive.acoustic.trim().toLowerCase();
+    final isAcousticNotDetected = acousticClean == '0' ||
+        acousticClean == '0 hz' ||
+        acousticClean.startsWith('0 ') ||
+        hive.acousticStatus.toLowerCase().contains('not detected');
+
+    final conditionText = isAcousticNotDetected ? 'No Buzz Detected' : hive.conditionLabel;
+    final conditionBgColor = isAcousticNotDetected ? const Color(0xFFFFEBEE) : hive.labelBgColor;
+    final conditionTextColor = isAcousticNotDetected
+        ? const Color(0xFFC62828)
+        : (hive.labelColor == Colors.grey ? Colors.black87 : hive.labelColor);
+    final confidenceText = isAcousticNotDetected ? '0%' : '${hive.confidence}%';
+    final confidenceColor = isAcousticNotDetected ? const Color(0xFFD32F2F) : Colors.black;
+
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(
@@ -239,15 +260,15 @@ class _HivesScreenState extends State<HivesScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: hive.labelBgColor,
+                      color: conditionBgColor,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      hive.conditionLabel,
+                      conditionText,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: hive.labelColor == Colors.grey ? Colors.black87 : hive.labelColor,
+                        color: conditionTextColor,
                       ),
                     ),
                   ),
@@ -276,11 +297,11 @@ class _HivesScreenState extends State<HivesScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${hive.confidence}%',
-                  style: const TextStyle(
+                  confidenceText,
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
-                    color: Colors.black,
+                    color: confidenceColor,
                   ),
                 ),
                 const SizedBox(height: 6),

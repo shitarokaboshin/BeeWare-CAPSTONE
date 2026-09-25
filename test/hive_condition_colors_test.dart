@@ -80,7 +80,7 @@ void main() {
       }).toList();
 
       // We expect 4 condition dots
-      expect(dotContainers.length, 4);
+      expect(dotContainers.length, 5);
       final presentDot = dotContainers[0].decoration as BoxDecoration;
       expect(presentDot.color, AppColors.queenPresentGreen);
 
@@ -144,7 +144,7 @@ void main() {
         return box?.shape == BoxShape.circle && c.constraints?.maxWidth == 10;
       }).toList();
 
-      expect(dotContainers.length, 4);
+      expect(dotContainers.length, 5);
       final presentDot = dotContainers[0].decoration as BoxDecoration;
       expect(presentDot.color, Colors.grey.shade400);
 

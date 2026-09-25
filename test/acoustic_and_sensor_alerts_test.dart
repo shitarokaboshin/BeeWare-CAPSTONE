@@ -5,6 +5,8 @@ import 'package:beeware_app/services/alert_service.dart';
 import 'package:beeware_app/services/hive_service.dart';
 import 'package:beeware_app/widgets/sensor_visualizers.dart';
 import 'package:beeware_app/screens/hive_detail_screen.dart';
+import 'package:beeware_app/screens/hives_screen.dart';
+
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -239,6 +241,36 @@ void main() {
       expect(find.text('No Buzz Detected'), findsOneWidget);
       expect(find.text('Queen Present • No Buzz'), findsNothing);
     });
+
+    testWidgets('HivesScreen displays No Buzz Detected and 0% confidence on hive card when acoustic is 0 Hz', (tester) async {
+      hiveService.addHive(
+        HiveData(
+          id: 'silent_hive_hives_screen',
+          name: 'Silent Hives Screen Hive',
+          deviceId: 'BW-SILENT-HS',
+          conditionLabel: 'Queen Present',
+          confidence: 90,
+          healthScore: 90,
+          temperature: '32.0',
+          humidity: '65',
+          acoustic: '0 Hz',
+          acousticStatus: 'Not Detected (0 Hz)',
+          updated: 'Just now',
+          isAlert: false,
+          alertLabel: 'Normal',
+          alertMessage: 'Active',
+        ),
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: HivesScreen(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('No Buzz Detected'), findsWidgets);
+      expect(find.text('0%'), findsWidgets);
+    });
   });
 }
-
