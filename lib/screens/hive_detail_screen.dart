@@ -823,6 +823,17 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
 
   // ---------------- TAB 3: AI ANALYSIS ----------------
   Widget _buildAiAnalysisTab() {
+    final parsedTemp = double.tryParse(_hive.temperature.replaceAll('°C', '').trim());
+    final parsedHum = double.tryParse(_hive.humidity.replaceAll('%', '').trim());
+    final isTempNotDetected = (parsedTemp != null && parsedTemp <= 0.0) || _hive.temperature == '0.0' || _hive.temperature == '0';
+    final isHumNotDetected = (parsedHum != null && parsedHum <= 0.0) || _hive.humidity == '0.0' || _hive.humidity == '0';
+    final acousticClean = _hive.acoustic.trim().toLowerCase();
+    final isAcousticNotDetected = acousticClean == '0' ||
+        acousticClean == '0 hz' ||
+        acousticClean.startsWith('0 ') ||
+        _hive.acousticStatus.toLowerCase().contains('not detected');
+    final hasSensorNotDetected = isTempNotDetected || isHumNotDetected || isAcousticNotDetected;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -925,23 +936,35 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
         // AI Recommendation Card
         Container(
           padding: const EdgeInsets.all(16.0),
-          decoration: AppStyles.cardDecoration(color: AppColors.infoBlueBg),
+          decoration: AppStyles.cardDecoration(
+            color: hasSensorNotDetected ? const Color(0xFFFFF8E1) : AppColors.infoBlueBg,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.info_outline, color: Colors.black87, size: 22),
+              Icon(
+                hasSensorNotDetected ? Icons.lightbulb_outline : Icons.info_outline,
+                color: hasSensorNotDetected ? const Color(0xFFF57F17) : Colors.black87,
+                size: 22,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'AI Recommendation',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: hasSensorNotDetected ? const Color(0xFFE65100) : Colors.black,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _hive.recommendation,
+                      hasSensorNotDetected
+                          ? '⚠️ Sensor Data Missing: Connect offline sensors for accurate colony diagnosis.\n\n${_hive.recommendation}'
+                          : _hive.recommendation,
                       style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
                     ),
                   ],
@@ -950,6 +973,108 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
             ],
           ),
         ),
+
+        // Below the AI Recommendation: Sensor Connection & Diagnostic Advisory Card
+        if (hasSensorNotDetected) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEE),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFEF5350), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Sensor Disconnected Alert',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFC62828),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFCDD2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'ACTION REQUIRED',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFB71C1C),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'The AI detected that the following hardware sensor(s) are offline or not connected to the ESP32 node:',
+                  style: TextStyle(fontSize: 12, color: Color(0xFFB71C1C), height: 1.3),
+                ),
+                const SizedBox(height: 10),
+                if (isTempNotDetected)
+                  _sensorActionRow(
+                    icon: Icons.thermostat,
+                    title: 'Temperature Sensor Not Detected (0.0°C)',
+                    action: 'Check DHT22 DATA wire on GPIO 4 & verify 3.3V power and GND connections.',
+                  ),
+                if (isHumNotDetected)
+                  _sensorActionRow(
+                    icon: Icons.water_drop,
+                    title: 'Humidity Sensor Not Detected (0%)',
+                    action: 'Check DHT22 DATA wire on GPIO 4 & verify sensor contacts are clean and dry.',
+                  ),
+                if (isAcousticNotDetected)
+                  _sensorActionRow(
+                    icon: Icons.mic_off,
+                    title: 'Acoustic Microphone Not Detected (0 Hz / Silent)',
+                    action: 'Check INMP441 pins: D33 (SD), D32 (SCK), D25 (WS), 3.3V (VDD), GND, & L/R to GND.',
+                  ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFFCDD2)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.build_circle_outlined, size: 18, color: Color(0xFFD32F2F)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'After reconnecting wires, press the EN (Reset) button on the ESP32 node to refresh live AI diagnostics.',
+                          style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black87),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1003,6 +1128,54 @@ class _HiveDetailScreenState extends State<HiveDetailScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _sensorActionRow({
+    required IconData icon,
+    required String title,
+    required String action,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFCDD2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icon, size: 16, color: const Color(0xFFC62828)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFB71C1C),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  action,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.black87,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
