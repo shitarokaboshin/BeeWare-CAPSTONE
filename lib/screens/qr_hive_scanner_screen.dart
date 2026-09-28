@@ -49,7 +49,15 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
       deviceId = (map['deviceId'] ?? map['device_id'] ?? raw).toString().trim();
       mac = map['mac']?.toString();
     } catch (_) {
-      // Not JSON — treat the raw value as plain device ID
+      // Not JSON — check if raw string contains a device ID pattern like BW-XXXXXX
+      final devMatch = RegExp(r'BW-[0-9A-Za-z]+', caseSensitive: false).firstMatch(raw);
+      if (devMatch != null) {
+        deviceId = devMatch.group(0)!.toUpperCase();
+      }
+      final macMatch = RegExp(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})').firstMatch(raw);
+      if (macMatch != null) {
+        mac = macMatch.group(0);
+      }
     }
 
     if (!mounted) return;
@@ -57,8 +65,31 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
   }
 
   Future<void> _handleDirectQrConnection(String deviceId, String? mac) async {
+    // Query backend telemetry for this node to grab real-time live data
+    final records = await BackendService().fetchTelemetryRecords(limit: 50);
+
+    // If deviceId is a URL or generic string without BW-, auto-resolve to an active hardware node
+    if (deviceId.startsWith('http') || !deviceId.toUpperCase().startsWith('BW-')) {
+      final assignedDeviceIds = HiveService().hives.map((h) => h.deviceId.toUpperCase()).toSet();
+      final activeNodes = records
+          .map((r) => (r['device_id'] ?? r['deviceId'] ?? '').toString().toUpperCase())
+          .where((id) => id.startsWith('BW-'))
+          .toSet();
+
+      final unassigned = activeNodes.firstWhere(
+        (id) => !assignedDeviceIds.contains(id),
+        orElse: () => activeNodes.isNotEmpty ? activeNodes.first : '',
+      );
+
+      if (unassigned.isNotEmpty) {
+        deviceId = unassigned;
+      }
+    }
+
     final existingMatches = HiveService().hives.where(
-      (h) => h.deviceId.toUpperCase() == deviceId.toUpperCase(),
+      (h) => h.deviceId.toUpperCase() == deviceId.toUpperCase() ||
+             h.deviceId.toUpperCase().contains(deviceId.toUpperCase()) ||
+             deviceId.toUpperCase().contains(h.deviceId.toUpperCase()),
     ).toList();
 
     if (existingMatches.isNotEmpty) {
@@ -68,11 +99,11 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
       return;
     }
 
-    // Query backend telemetry for this node to grab real-time live data
-    final records = await BackendService().fetchTelemetryRecords(limit: 50);
     final matchingRecords = records.where((r) {
       final dev = (r['device_id'] ?? r['deviceId'] ?? '').toString().toUpperCase();
-      return dev == deviceId.toUpperCase();
+      return dev == deviceId.toUpperCase() ||
+             dev.contains(deviceId.toUpperCase()) ||
+             deviceId.toUpperCase().contains(dev);
     }).toList();
 
     final hiveCount = HiveService().hives.length;
@@ -119,8 +150,9 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
       } else if (rawFreq is String) {
         freqHz = int.tryParse(rawFreq.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       }
-      final acousticStr = freqHz > 0 ? '$freqHz Hz' : '0 Hz';
-      final acousticStatusStr = freqHz > 0 ? 'Normal' : 'Not Detected (0 Hz)';
+      final bool hasAcoustic = freqHz > 0;
+      final acousticStr = hasAcoustic ? '$freqHz Hz' : '0 Hz';
+      final acousticStatusStr = hasAcoustic ? 'Normal' : 'Not Detected (0 Hz)';
 
       newHive = HiveData(
         id: 'hive_${DateTime.now().millisecondsSinceEpoch}',
@@ -129,9 +161,11 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
         notes: mac != null && mac.isNotEmpty
             ? 'Paired directly via QR sticker ($mac)'
             : 'Paired directly via QR sticker',
-        conditionLabel: 'Queen Present',
-        confidence: 95,
-        healthScore: 94,
+        conditionLabel: !hasAcoustic
+            ? 'No Buzz Detected'
+            : (freqHz > 260 ? 'Queen Absent' : 'Queen Present'),
+        confidence: !hasAcoustic ? 0 : 95,
+        healthScore: !hasAcoustic ? 0 : 94,
         temperature: temp.toStringAsFixed(1),
         humidity: hum.toStringAsFixed(0),
         acoustic: acousticStr,
@@ -141,11 +175,15 @@ class _QrHiveScannerScreenState extends State<QrHiveScannerScreen> {
         updated: 'Just now',
         signalBars: signalBars,
         audioFilePath: audioPath,
+        queenPresentDetected: hasAcoustic && freqHz <= 260,
+        queenAbsentDetected: hasAcoustic && freqHz > 260,
+        queenAcceptedDetected: false,
+        queenRejectedDetected: false,
         temperatureHistory: tempHist.isNotEmpty ? tempHist : [temp],
         humidityHistory: humHist.isNotEmpty ? humHist : [hum],
         isAlert: false,
-        alertLabel: 'Queen Present',
-        alertMessage: 'Direct QR pairing connected to $deviceId.',
+        alertLabel: !hasAcoustic ? 'No Buzz Detected' : (freqHz > 260 ? 'Queen Absent' : 'Queen Present'),
+        alertMessage: !hasAcoustic ? 'No Buzz Detected' : 'Direct QR pairing connected to $deviceId.',
       );
     } else {
       newHive = HiveData(

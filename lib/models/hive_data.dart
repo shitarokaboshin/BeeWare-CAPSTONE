@@ -189,10 +189,19 @@ class HiveData {
   }
 
   factory HiveData.fromFirestore(String id, Map<String, dynamic> data) {
-    final rawAcoustic = (data['acoustic'] ?? '0 Hz').toString();
+    final rawFreq = data['frequency'] ?? data['frequency_hz'];
+    int parsedFreq = 0;
+    if (rawFreq is num) {
+      parsedFreq = rawFreq.toInt();
+    } else if (rawFreq is String) {
+      parsedFreq = int.tryParse(rawFreq.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    }
+
+    final rawAcoustic = (data['acoustic'] ?? (parsedFreq > 0 ? '$parsedFreq Hz' : '0 Hz')).toString();
     final acousticClean = rawAcoustic.replaceAll(RegExp(r'[^0-9]'), '').trim();
-    final bool isAcousticDetected = acousticClean.isNotEmpty &&
-        acousticClean != '0' &&
+    final int freqHz = parsedFreq > 0 ? parsedFreq : (int.tryParse(acousticClean) ?? 0);
+
+    final bool isAcousticDetected = freqHz > 0 &&
         !rawAcoustic.toLowerCase().contains('not detected') &&
         !(data['acousticStatus']?.toString().toLowerCase().contains('not detected') ?? false);
 
@@ -209,7 +218,7 @@ class HiveData {
       isAccepted = false;
       isRejected = false;
     } else {
-      condition = data['conditionLabel'] ?? 'Queen Present';
+      condition = data['conditionLabel'] ?? (freqHz > 260 ? 'Queen Absent' : 'Queen Present');
       isAbsent = condition.toLowerCase().contains('absent');
       isRejected = condition.toLowerCase().contains('rejected');
       isAccepted = condition.toLowerCase().contains('accepted');
@@ -229,11 +238,11 @@ class HiveData {
       deviceId: data['deviceId'] ?? 'BW-001',
       notes: data['notes'] ?? '',
       conditionLabel: condition,
-      confidence: !isAcousticDetected ? 0 : ((data['confidence'] as num?)?.toInt() ?? 90),
-      healthScore: !isAcousticDetected ? 0 : ((data['healthScore'] as num?)?.toInt() ?? 90),
+      confidence: !isAcousticDetected ? 0 : (((data['confidence'] as num?)?.toInt() ?? 0) > 0 ? (data['confidence'] as num)!.toInt() : 94),
+      healthScore: !isAcousticDetected ? 0 : (((data['healthScore'] as num?)?.toInt() ?? 0) > 0 ? (data['healthScore'] as num)!.toInt() : 92),
       temperature: data['temperature']?.toString() ?? '34.0',
       humidity: data['humidity']?.toString() ?? '60',
-      acoustic: !isAcousticDetected ? '0 Hz' : rawAcoustic,
+      acoustic: !isAcousticDetected ? '0 Hz' : (freqHz > 0 ? '$freqHz Hz' : rawAcoustic),
       acousticStatus: !isAcousticDetected ? 'Not Detected (0 Hz)' : (data['acousticStatus'] ?? 'Normal'),
       wifiStatus: data['wifiStatus'] ?? 'Connected',
       batteryLevel: data['batteryLevel'] ?? '90%',

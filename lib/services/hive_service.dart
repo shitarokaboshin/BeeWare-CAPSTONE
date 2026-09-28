@@ -288,25 +288,31 @@ class HiveService extends ChangeNotifier {
       final String acousticStr = hasAcoustic ? '$freqHz Hz' : '0 Hz';
       final String acousticStatusStr = hasAcoustic ? 'Normal' : 'Not Detected (0 Hz)';
 
-      // Find matching hive by deviceId, id, or name
+      // Find matching hive by deviceId, id, or name (with substring matching for QR codes)
       int index = _hives.indexWhere((h) =>
           h.deviceId.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
+          h.deviceId.toUpperCase().contains(deviceId.toUpperCase()) ||
           h.id.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
+          h.id.toUpperCase().contains(deviceId.toUpperCase()) ||
           (h.name.trim().isNotEmpty && h.name.toUpperCase().contains(deviceId.toUpperCase())));
 
-      // Smart fallback 1: If only 1 hive exists in the app, link it to this active node
-      if (index == -1 && _hives.length == 1) {
-        index = 0;
-      }
-      // Smart fallback 2: If a hive with placeholder/default deviceId exists, link it
+      // Smart fallback 1: Link any hive in 'Connecting...' state or with placeholder/QR URL deviceId
       if (index == -1) {
-        final placeholderIdx = _hives.indexWhere((h) =>
+        final connectingIdx = _hives.indexWhere((h) =>
+            h.updated.toLowerCase().contains('connect') ||
+            h.deviceId.toLowerCase().contains('qrcode') ||
+            h.deviceId.toLowerCase().contains('http') ||
             h.deviceId.toUpperCase().startsWith('BW-001') ||
             h.deviceId.isEmpty ||
             h.deviceId == 'default');
-        if (placeholderIdx != -1) {
-          index = placeholderIdx;
+        if (connectingIdx != -1) {
+          index = connectingIdx;
         }
+      }
+
+      // Smart fallback 2: If only 1 hive exists in the app, link it to this active node
+      if (index == -1 && _hives.length == 1) {
+        index = 0;
       }
 
       if (index != -1) {
@@ -376,6 +382,20 @@ class HiveService extends ChangeNotifier {
       _saveToCache();
       ConnectivityService().recordSyncEvent();
       _debouncedNotify();
+
+      // Persist real-time telemetry updates to Firestore so cloud database reflects live buzzing
+      try {
+        for (final hive in _hives) {
+          FirebaseFirestore.instance.collection('hives').doc(hive.id).set({
+            ...hive.toMap(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true)).catchError((e) {
+            debugPrint('Firestore telemetry sync error: $e');
+          });
+        }
+      } catch (e) {
+        debugPrint('Firestore telemetry sync skipped: $e');
+      }
     }
   }
 
