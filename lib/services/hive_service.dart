@@ -264,11 +264,7 @@ class HiveService extends ChangeNotifier {
       final acousticHist = devRecords
           .map((r) {
             final f = ((r['frequency'] ?? r['frequency_hz'] ?? 0) as num).toDouble();
-            if (f > 0) return (f / 5.0).clamp(20.0, 95.0);
-            final peak = (r['peak_audio'] as num?)?.toDouble();
-            if (peak != null && peak > 0) {
-              return (peak / 50.0).clamp(20.0, 95.0);
-            }
+            if (f >= 120 && f <= 450) return (f / 5.0).clamp(20.0, 95.0);
             return 0.0;
           })
           .take(20)
@@ -283,6 +279,10 @@ class HiveService extends ChangeNotifier {
         freqHz = rawFreq.toInt();
       } else if (rawFreq is String) {
         freqHz = int.tryParse(rawFreq.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      }
+      // Honeybee acoustic range is strictly 120 - 450 Hz
+      if (freqHz < 120 || freqHz > 450) {
+        freqHz = 0;
       }
       final bool hasAcoustic = freqHz > 0;
       final String acousticStr = hasAcoustic ? '$freqHz Hz' : '0 Hz';
@@ -301,6 +301,15 @@ class HiveService extends ChangeNotifier {
           humidity: hum.toStringAsFixed(0),
           acoustic: acousticStr,
           acousticStatus: acousticStatusStr,
+          conditionLabel: !hasAcoustic
+              ? 'No Buzz Detected'
+              : (freqHz > 260 ? 'Queen Absent' : 'Queen Present'),
+          alertLabel: !hasAcoustic ? 'No Buzz Detected' : existing.alertLabel,
+          queenPresentDetected: hasAcoustic && freqHz <= 260,
+          queenAbsentDetected: hasAcoustic && freqHz > 260,
+          queenAcceptedDetected: false,
+          queenRejectedDetected: false,
+          confidence: !hasAcoustic ? 0 : (existing.confidence > 0 ? existing.confidence : 92),
           batteryLevel: '$batt%',
           wifiStatus: 'Connected',
           signalBars: signalBars,

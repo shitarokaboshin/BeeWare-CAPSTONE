@@ -339,20 +339,50 @@ def compute_audio_frequency(audio_bytes: bytes, sample_rate: int = 16000) -> int
         num_samples = len(audio_bytes) // 2
         samples = struct.unpack(f"{num_samples}h", audio_bytes)
 
-        # Single-pole DC blocker filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
+        # Single-pole DC blocker filter: y[n] = x[n] - x[n-1] + 0.98 * y[n-1]
+        # fc ~ 51 Hz at 16kHz sample rate (blocks 0 Hz DC offset and attenuates 60 Hz hum)
         y = 0.0
         prev_x = 0.0
         filtered = []
         for x in samples:
-            y = float(x) - prev_x + 0.95 * y
+            y = float(x) - prev_x + 0.98 * y
             prev_x = float(x)
             filtered.append(y)
 
         peak = max(abs(s) for s in filtered)
-        if peak < 800.0:
-            return 0  # Below noise threshold / silence
+        avg_mag = sum(abs(s) for s in filtered) / len(filtered)
+        if peak < 500.0 or avg_mag < 120.0:
+            return 0  # Below noise threshold / silence (No Buzz Detected)
 
-        thresh = max(300.0, peak * 0.1)
+        # Autocorrelation pitch extraction for honeybee spectrum (120 Hz to 450 Hz)
+        # Sample rate = 16000 -> Lag = 16000 / freq -> 35 to 133 samples
+        sr = sample_rate
+        win_size = min(2048, len(filtered))
+        min_lag = int(sr / 450)  # ~35 samples
+        max_lag = int(sr / 120)  # ~133 samples
+
+        chunk = filtered[len(filtered) // 2 : len(filtered) // 2 + win_size]
+        r0 = sum(s * s for s in chunk[: win_size - max_lag - 1])
+        best_r = 0.0
+        best_lag = 0
+        if r0 > 1e4:
+            r_vals = {}
+            for lag in range(min_lag - 1, max_lag + 2):
+                r = sum(chunk[n] * chunk[n + lag] for n in range(win_size - max_lag - 1))
+                r_vals[lag] = r / r0
+            for lag in range(min_lag, max_lag + 1):
+                if r_vals[lag] > r_vals[lag - 1] and r_vals[lag] > r_vals[lag + 1]:
+                    if r_vals[lag] > best_r:
+                        best_r = r_vals[lag]
+                        best_lag = lag
+
+        if best_r > 0.40 and best_lag > 0:
+            freq = sr / best_lag
+            if 120.0 <= freq <= 450.0:
+                return int(round(freq))
+
+        # Fallback to zero-crossing rate with hysteresis noise gate
+        thresh = max(250.0, peak * 0.20)
         zc = 0
         prev_sign = 0
         for s in filtered:
@@ -362,12 +392,13 @@ def compute_audio_frequency(audio_bytes: bytes, sample_rate: int = 16000) -> int
             if sign != 0:
                 prev_sign = sign
 
-        duration = num_samples / sample_rate
-        if duration <= 0:
-            return 0
-        freq = (zc / 2.0) / duration
-        if 80.0 <= freq <= 1200.0:
-            return int(round(freq))
+        duration = len(filtered) / sr
+        if duration > 0:
+            zcr_freq = (zc / 2.0) / duration
+            # Strictly validate within biological honeybee frequency range (120 - 450 Hz)
+            if 120.0 <= zcr_freq <= 450.0:
+                return int(round(zcr_freq))
+
         return 0
     except Exception as exc:
         print(f"⚠️ Audio frequency analysis error: {exc}")
@@ -424,8 +455,12 @@ def process_telemetry_background(
                 computed_freq = compute_audio_frequency(audio_bytes, sample_rate)
                 if computed_freq > 0:
                     print(f"🎵 [DSP ANALYSIS] Detected acoustic frequency: {computed_freq} Hz (reported: {frequency} Hz)")
-                    if frequency == 0 or frequency < 80:
-                        frequency = computed_freq
+                    frequency = computed_freq
+                elif frequency < 120 or frequency > 450:
+                    # Reject out-of-range frequencies (e.g. 947 Hz noise or 60 Hz hum) reported by unpatched nodes
+                    if frequency != 0:
+                        print(f"⚠️ [ACOUSTIC FILTER] Rejected invalid reported frequency {frequency} Hz -> sanitized to 0 Hz (No Buzz Detected)")
+                    frequency = 0
             else:
                 print(f"ℹ️ [NO AUDIO] Empty audio payload received.")
         except Exception as exc:
@@ -654,6 +689,9 @@ async def ingest_telemetry(
 
     # Extract acoustic frequency
     freq_val = request.frequency or request.frequency_hz or 0
+    # Strictly validate against biological honeybee frequency range (120 - 450 Hz)
+    if freq_val < 120 or freq_val > 450:
+        freq_val = 0
 
     # Queue background task for non-blocking I/O
     background_tasks.add_task(

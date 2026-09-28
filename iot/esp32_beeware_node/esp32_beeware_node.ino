@@ -35,7 +35,7 @@ const char* API_KEY       = "beeware_secret_key_default";
 #define USE_DEEP_SLEEP      false     // false = Active Cooldown Loop (recommended for bench testing/USB); true = Deep Sleep
 #define RECORD_TIME_SECONDS 3.0       // 3.0 full seconds of audio
 #define SAMPLE_RATE         16000     // Full 16kHz studio sample rate
-#define VOLUME_GAIN         4         // Digital gain boost
+#define VOLUME_GAIN         1         // Digital gain multiplier (1 = standard 16-bit headroom)
 
 // INMP441 I2S Pins
 #define I2S_WS              25        // Word Select (WS / LRCL)
@@ -171,10 +171,12 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
   size_t samplesReadTotal = 0;
   uint32_t startMs = millis();
 
-  // DC Blocker filter state to remove INMP441 -4200 DC offset
+  // Single-pole DC Blocker filter state to remove INMP441 hardware DC offset:
+  // y[n] = x[n] - x[n-1] + 0.98 * y[n-1] (Cutoff fc ~51 Hz at 16kHz)
   float prev_x = 0.0f;
   float filtered_y = 0.0f;
   float maxPeak = 0.0f;
+  float sumEnergy = 0.0f;
   int zeroCrossings = 0;
   int prevSign = 0;
 
@@ -187,20 +189,23 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
     if (err == ESP_OK && bytesRead > 0) {
       size_t count = bytesRead / sizeof(int32_t);
       for (size_t i = 0; i < count; i++) {
-        int32_t sample = chunkRaw[i] >> 14;
-        sample = sample * VOLUME_GAIN;
+        // INMP441 outputs 24-bit PCM in bits [31:8].
+        // Shift right by 15 for clean 16-bit PCM with gentle 2x boost (no clipping).
+        int32_t raw16 = chunkRaw[i] >> 15;
 
-        // Apply single-pole DC-blocker high-pass filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
-        filtered_y = (float)sample - prev_x + 0.95f * filtered_y;
-        prev_x = (float)sample;
+        // Apply single-pole DC-blocker high-pass filter: y[n] = x[n] - x[n-1] + 0.98 * y[n-1]
+        filtered_y = (float)raw16 - prev_x + 0.98f * filtered_y;
+        prev_x = (float)raw16;
 
         float absVal = fabsf(filtered_y);
+        sumEnergy += absVal;
         if (absVal > maxPeak) {
           maxPeak = absVal;
         }
 
-        // Noise gate hysteresis threshold (reject baseline electrical noise)
-        float noiseThresh = 300.0f;
+        // Noise gate hysteresis threshold: rejects baseline room noise (<200)
+        // Genuine honeybee buzzing produces peaks >500 and clearly crosses +/-350
+        float noiseThresh = 350.0f;
         int sign = 0;
         if (filtered_y > noiseThresh) {
           sign = 1;
@@ -220,21 +225,27 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
   }
 
   peakVal = (int32_t)maxPeak;
+  float avgEnergy = samplesReadTotal > 0 ? (sumEnergy / (float)samplesReadTotal) : 0.0f;
 
-  // Honeybee piping & colony buzz typically falls between 80 Hz and 1200 Hz.
-  // If peak is below ambient threshold or zero-crossings are insufficient, report 0 (silent / not detected).
-  if (maxPeak < 800.0f || zeroCrossings < 15 || samplesReadTotal == 0) {
+  // Honeybee worker buzz & queen piping range is strictly 120 Hz to 450 Hz.
+  // In a quiet room or silence, peak < 500 or avgEnergy < 120 -> report 0 Hz (No Buzz Detected).
+  if (maxPeak < 500.0f || avgEnergy < 120.0f || zeroCrossings < 20 || samplesReadTotal == 0) {
     freqHz = 0;
-    Serial.printf("⚠️ [ACOUSTIC SENSOR] Sound below threshold (Peak: %.0f, ZC: %d) — 0 Hz / No Buzz Detected\n", maxPeak, zeroCrossings);
+    Serial.printf("⚠️ [ACOUSTIC SENSOR] Silence / sound below threshold (Peak: %.0f, Avg: %.0f, ZC: %d) — 0 Hz / No Buzz Detected\n",
+                  maxPeak, avgEnergy, zeroCrossings);
   } else {
     float durationSec = (float)samplesReadTotal / (float)SAMPLE_RATE;
     float calculatedHz = (zeroCrossings / 2.0f) / durationSec;
-    if (calculatedHz < 80.0f || calculatedHz > 1200.0f) {
+    // Strictly validate within biological honeybee frequency range:
+    // Worker bee buzz: 150 - 260 Hz | Queen piping: 300 - 450 Hz
+    if (calculatedHz < 120.0f || calculatedHz > 450.0f) {
       freqHz = 0;
-      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency: %.1f Hz (Peak: %.0f) — reporting 0 Hz\n", calculatedHz, maxPeak);
+      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency (120-450 Hz): %.1f Hz (Peak: %.0f) — reporting 0 Hz / No Buzz Detected\n",
+                    calculatedHz, maxPeak);
     } else {
       freqHz = (int)round(calculatedHz);
-      Serial.printf("🔊 Acoustic Dominant Frequency: %d Hz (Peak Amplitude: %d, ZC: %d)\n", freqHz, peakVal, zeroCrossings);
+      Serial.printf("🔊 Honeybee Buzz Detected: %d Hz (Peak Amplitude: %d, Avg: %.0f, ZC: %d)\n",
+                    freqHz, peakVal, avgEnergy, zeroCrossings);
     }
   }
 }
@@ -389,6 +400,9 @@ void streamTelemetryAndAudio(float temp, float hum, int battery, int rssi, int f
     i2s_channel_enable(rx_handle);
   }
 
+  float stream_prev_x = 0.0f;
+  float stream_filtered_y = 0.0f;
+
   while (samplesRecorded < totalSamples && (millis() - startMs < timeoutMs)) {
     size_t samplesToRead = min(CHUNK_SAMPLES, totalSamples - samplesRecorded);
     size_t bytesToRead = samplesToRead * sizeof(int32_t);
@@ -398,9 +412,14 @@ void streamTelemetryAndAudio(float temp, float hum, int battery, int rssi, int f
     if (err == ESP_OK && bytesRead > 0) {
       size_t readSamples = bytesRead / sizeof(int32_t);
       for (size_t i = 0; i < readSamples; i++) {
-        int32_t sample = chunkRaw[i] >> 14;
-        sample = sample * VOLUME_GAIN;
+        // Shift right by 15 for clean 16-bit PCM with gentle 2x boost (no clipping)
+        int32_t raw16 = chunkRaw[i] >> 15;
 
+        // Apply DC blocker filter before clamping to 16-bit PCM
+        stream_filtered_y = (float)raw16 - stream_prev_x + 0.98f * stream_filtered_y;
+        stream_prev_x = (float)raw16;
+
+        int32_t sample = (int32_t)roundf(stream_filtered_y);
         if (sample > 32767) sample = 32767;
         if (sample < -32768) sample = -32768;
 
