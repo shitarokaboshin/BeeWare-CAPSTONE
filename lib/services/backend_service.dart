@@ -25,7 +25,7 @@ class BackendService {
       return _customBaseUrl!;
     }
     // Default backend URL — 0.0.0.0 binds to all interfaces on the host machine
-    return 'https://beeware-2wp5.onrender.com';
+    return 'http://0.0.0.0:8000';
   }
 
   set baseUrl(String url) {
@@ -92,7 +92,7 @@ class BackendService {
     }
 
     // 2. Fallback: query custom or local backend if configured and not 0.0.0.0
-    if (!baseUrl.contains('0.0.0.0')) {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty && !baseUrl.contains('0.0.0.0')) {
       try {
         final uri = Uri.parse('$baseUrl/telemetry?limit=$limit');
         final response = await http.get(
@@ -187,7 +187,7 @@ class BackendService {
     }
 
     // 2. Fallback to local/custom backend if configured and not 0.0.0.0
-    if (!baseUrl.contains('0.0.0.0')) {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty && !baseUrl.contains('0.0.0.0')) {
       try {
         final response = await http
             .post(
