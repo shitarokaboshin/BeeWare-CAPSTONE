@@ -529,7 +529,7 @@ def send_fcm_telemetry_notification(
 
 
 # ======================== API ROUTES ========================
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check() -> Dict[str, str]:
     """Health check endpoint."""
     return {
@@ -540,7 +540,7 @@ async def health_check() -> Dict[str, str]:
     }
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root() -> Dict[str, str]:
     return {"message": "BeeWare Hive Alert & IoT Telemetry API is running"}
 
