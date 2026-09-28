@@ -338,27 +338,34 @@ class AlertNotificationRequest(BaseModel):
 
 # ======================== ACOUSTIC FREQUENCY (DSP) ENGINE ========================
 def compute_audio_frequency(audio_bytes: bytes, sample_rate: int = 16000) -> int:
-    """Analyzes raw PCM frames, filters DC offset, and extracts dominant fundamental frequency in Hz."""
+    """Analyzes raw PCM frames, filters DC offset, applies low-pass smoothing, and extracts fundamental frequency in Hz."""
     if not audio_bytes or len(audio_bytes) < 400:
         return 0
     try:
         num_samples = len(audio_bytes) // 2
         samples = struct.unpack(f"{num_samples}h", audio_bytes)
 
-        # Single-pole DC blocker filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
-        y = 0.0
+        # Silence check
+        peak = max(abs(s) for s in samples)
+        if peak < 450.0:
+            return 0  # Silence / quiet room
+
+        # IIR Low-pass filter (cutoff ~550Hz) + DC blocker
+        lpf = 0.0
+        dc_block = 0.0
         prev_x = 0.0
         filtered = []
         for x in samples:
-            y = float(x) - prev_x + 0.95 * y
-            prev_x = float(x)
-            filtered.append(y)
+            lpf = 0.15 * float(x) + 0.85 * lpf
+            dc_block = lpf - prev_x + 0.95 * dc_block
+            prev_x = lpf
+            filtered.append(dc_block)
 
-        peak = max(abs(s) for s in filtered)
-        if peak < 800.0:
-            return 0  # Below noise threshold / silence
+        filt_peak = max(abs(s) for s in filtered)
+        if filt_peak < 300.0:
+            return 0
 
-        thresh = max(300.0, peak * 0.1)
+        thresh = max(250.0, filt_peak * 0.03)
         zc = 0
         prev_sign = 0
         for s in filtered:
@@ -372,7 +379,7 @@ def compute_audio_frequency(audio_bytes: bytes, sample_rate: int = 16000) -> int
         if duration <= 0:
             return 0
         freq = (zc / 2.0) / duration
-        if 80.0 <= freq <= 1200.0:
+        if 100.0 <= freq <= 650.0:
             return int(round(freq))
         return 0
     except Exception as exc:
@@ -430,8 +437,7 @@ def process_telemetry_background(
                 computed_freq = compute_audio_frequency(audio_bytes, sample_rate)
                 if computed_freq > 0:
                     print(f"🎵 [DSP ANALYSIS] Detected acoustic frequency: {computed_freq} Hz (reported: {frequency} Hz)")
-                    if frequency == 0 or frequency < 80:
-                        frequency = computed_freq
+                    frequency = computed_freq
             else:
                 print(f"ℹ️ [NO AUDIO] Empty audio payload received.")
         except Exception as exc:
