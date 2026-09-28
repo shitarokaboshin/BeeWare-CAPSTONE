@@ -289,14 +289,20 @@ class HiveService extends ChangeNotifier {
       final String acousticStatusStr = hasAcoustic ? 'Normal' : 'Not Detected (0 Hz)';
 
       // Find matching hive by deviceId, id, or name
-      final index = _hives.indexWhere((h) =>
+      int index = _hives.indexWhere((h) =>
           h.deviceId.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
           h.id.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
           (h.name.trim().isNotEmpty && h.name.toUpperCase().contains(deviceId.toUpperCase())));
 
+      // Smart fallback: If only 1 hive exists in the app, link it to this active node
+      if (index == -1 && _hives.length == 1) {
+        index = 0;
+      }
+
       if (index != -1) {
         final existing = _hives[index];
         _hives[index] = existing.copyWith(
+          deviceId: existing.deviceId.isEmpty || existing.deviceId == 'BW-001-ALPHA' ? deviceId : existing.deviceId,
           temperature: temp.toStringAsFixed(1),
           humidity: hum.toStringAsFixed(0),
           acoustic: acousticStr,
@@ -311,6 +317,33 @@ class HiveService extends ChangeNotifier {
           humidityHistory: humHist.isNotEmpty ? humHist : existing.humidityHistory,
           acousticHistory: acousticHist.isNotEmpty ? acousticHist : existing.acousticHistory,
         );
+        hasChanged = true;
+      } else if (_hives.isEmpty) {
+        // Auto-create hive card for detected node if list is empty
+        final newHive = HiveData(
+          id: 'HIVE-${deviceId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '')}',
+          name: 'Hive $deviceId',
+          deviceId: deviceId,
+          temperature: temp.toStringAsFixed(1),
+          humidity: hum.toStringAsFixed(0),
+          acoustic: acousticStr,
+          acousticStatus: acousticStatusStr,
+          conditionLabel: 'Queen Present',
+          confidence: 90,
+          healthScore: 92,
+          batteryLevel: '$batt%',
+          wifiStatus: 'Connected',
+          signalBars: signalBars,
+          updated: 'Just now',
+          isAlert: false,
+          alertMessage: 'Colony condition stable.',
+          audioFilePath: audioPath,
+          historyDates: datesHist,
+          temperatureHistory: tempHist,
+          humidityHistory: humHist,
+          acousticHistory: acousticHist,
+        );
+        _hives.add(newHive);
         hasChanged = true;
       }
     });
