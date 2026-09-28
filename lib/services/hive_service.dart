@@ -264,7 +264,11 @@ class HiveService extends ChangeNotifier {
       final acousticHist = devRecords
           .map((r) {
             final f = ((r['frequency'] ?? r['frequency_hz'] ?? 0) as num).toDouble();
-            if (f >= 120 && f <= 450) return (f / 5.0).clamp(20.0, 95.0);
+            if (f > 0) return (f / 5.0).clamp(20.0, 95.0);
+            final peak = (r['peak_audio'] as num?)?.toDouble();
+            if (peak != null && peak > 0) {
+              return (peak / 50.0).clamp(20.0, 95.0);
+            }
             return 0.0;
           })
           .take(20)
@@ -280,23 +284,35 @@ class HiveService extends ChangeNotifier {
       } else if (rawFreq is String) {
         freqHz = int.tryParse(rawFreq.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       }
-      // Honeybee acoustic range is strictly 120 - 450 Hz
-      if (freqHz < 120 || freqHz > 450) {
-        freqHz = 0;
-      }
       final bool hasAcoustic = freqHz > 0;
       final String acousticStr = hasAcoustic ? '$freqHz Hz' : '0 Hz';
       final String acousticStatusStr = hasAcoustic ? 'Normal' : 'Not Detected (0 Hz)';
 
       // Find matching hive by deviceId, id, or name
-      final index = _hives.indexWhere((h) =>
+      int index = _hives.indexWhere((h) =>
           h.deviceId.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
           h.id.trim().toUpperCase() == deviceId.trim().toUpperCase() ||
           (h.name.trim().isNotEmpty && h.name.toUpperCase().contains(deviceId.toUpperCase())));
 
+      // Smart fallback 1: If only 1 hive exists in the app, link it to this active node
+      if (index == -1 && _hives.length == 1) {
+        index = 0;
+      }
+      // Smart fallback 2: If a hive with placeholder/default deviceId exists, link it
+      if (index == -1) {
+        final placeholderIdx = _hives.indexWhere((h) =>
+            h.deviceId.toUpperCase().startsWith('BW-001') ||
+            h.deviceId.isEmpty ||
+            h.deviceId == 'default');
+        if (placeholderIdx != -1) {
+          index = placeholderIdx;
+        }
+      }
+
       if (index != -1) {
         final existing = _hives[index];
         _hives[index] = existing.copyWith(
+          deviceId: deviceId, // Ensure it links directly to the physical node!
           temperature: temp.toStringAsFixed(1),
           humidity: hum.toStringAsFixed(0),
           acoustic: acousticStr,
@@ -304,12 +320,13 @@ class HiveService extends ChangeNotifier {
           conditionLabel: !hasAcoustic
               ? 'No Buzz Detected'
               : (freqHz > 260 ? 'Queen Absent' : 'Queen Present'),
-          alertLabel: !hasAcoustic ? 'No Buzz Detected' : existing.alertLabel,
+          alertLabel: !hasAcoustic ? 'No Buzz Detected' : (freqHz > 260 ? 'Queen Absent' : 'Queen Present'),
           queenPresentDetected: hasAcoustic && freqHz <= 260,
           queenAbsentDetected: hasAcoustic && freqHz > 260,
           queenAcceptedDetected: false,
           queenRejectedDetected: false,
           confidence: !hasAcoustic ? 0 : (existing.confidence > 0 ? existing.confidence : 92),
+          healthScore: !hasAcoustic ? 0 : (existing.healthScore > 0 ? existing.healthScore : 90),
           batteryLevel: '$batt%',
           wifiStatus: 'Connected',
           signalBars: signalBars,
@@ -320,6 +337,37 @@ class HiveService extends ChangeNotifier {
           humidityHistory: humHist.isNotEmpty ? humHist : existing.humidityHistory,
           acousticHistory: acousticHist.isNotEmpty ? acousticHist : existing.acousticHistory,
         );
+        hasChanged = true;
+      } else if (_hives.isEmpty) {
+        // Auto-create hive card for detected node if list is empty
+        final newHive = HiveData(
+          id: 'HIVE-${deviceId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '')}',
+          name: 'Hive $deviceId',
+          deviceId: deviceId,
+          temperature: temp.toStringAsFixed(1),
+          humidity: hum.toStringAsFixed(0),
+          acoustic: acousticStr,
+          acousticStatus: acousticStatusStr,
+          conditionLabel: !hasAcoustic ? 'No Buzz Detected' : 'Queen Present',
+          confidence: !hasAcoustic ? 0 : 92,
+          healthScore: !hasAcoustic ? 0 : 90,
+          batteryLevel: '$batt%',
+          wifiStatus: 'Connected',
+          signalBars: signalBars,
+          updated: 'Just now',
+          isAlert: false,
+          alertMessage: !hasAcoustic ? 'No Buzz Detected' : 'Colony condition stable.',
+          queenPresentDetected: hasAcoustic,
+          queenAbsentDetected: false,
+          queenAcceptedDetected: false,
+          queenRejectedDetected: false,
+          audioFilePath: audioPath,
+          historyDates: datesHist,
+          temperatureHistory: tempHist,
+          humidityHistory: humHist,
+          acousticHistory: acousticHist,
+        );
+        _hives.add(newHive);
         hasChanged = true;
       }
     });

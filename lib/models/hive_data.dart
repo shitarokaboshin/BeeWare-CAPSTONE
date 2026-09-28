@@ -189,11 +189,32 @@ class HiveData {
   }
 
   factory HiveData.fromFirestore(String id, Map<String, dynamic> data) {
-    final condition = data['conditionLabel'] ?? 'Queen Present';
-    final isAbsent = condition.toLowerCase().contains('absent');
-    final isRejected = condition.toLowerCase().contains('rejected');
-    final isAccepted = condition.toLowerCase().contains('accepted');
-    final isPresent = !isAbsent && !isRejected && !isAccepted;
+    final rawAcoustic = (data['acoustic'] ?? '0 Hz').toString();
+    final acousticClean = rawAcoustic.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    final bool isAcousticDetected = acousticClean.isNotEmpty &&
+        acousticClean != '0' &&
+        !rawAcoustic.toLowerCase().contains('not detected') &&
+        !(data['acousticStatus']?.toString().toLowerCase().contains('not detected') ?? false);
+
+    final String condition;
+    final bool isPresent;
+    final bool isAbsent;
+    final bool isAccepted;
+    final bool isRejected;
+
+    if (!isAcousticDetected) {
+      condition = 'No Buzz Detected';
+      isPresent = false;
+      isAbsent = false;
+      isAccepted = false;
+      isRejected = false;
+    } else {
+      condition = data['conditionLabel'] ?? 'Queen Present';
+      isAbsent = condition.toLowerCase().contains('absent');
+      isRejected = condition.toLowerCase().contains('rejected');
+      isAccepted = condition.toLowerCase().contains('accepted');
+      isPresent = !isAbsent && !isRejected && !isAccepted;
+    }
 
     List<double> parseDoubleList(dynamic list, List<double> fallback) {
       if (list is List) {
@@ -208,46 +229,59 @@ class HiveData {
       deviceId: data['deviceId'] ?? 'BW-001',
       notes: data['notes'] ?? '',
       conditionLabel: condition,
-      confidence: (data['confidence'] as num?)?.toInt() ?? 90,
-      healthScore: (data['healthScore'] as num?)?.toInt() ?? 90,
+      confidence: !isAcousticDetected ? 0 : ((data['confidence'] as num?)?.toInt() ?? 90),
+      healthScore: !isAcousticDetected ? 0 : ((data['healthScore'] as num?)?.toInt() ?? 90),
       temperature: data['temperature']?.toString() ?? '34.0',
       humidity: data['humidity']?.toString() ?? '60',
-      acoustic: data['acoustic'] ?? 'Normal Activity',
-      acousticStatus: data['acousticStatus'] ?? 'Normal',
+      acoustic: !isAcousticDetected ? '0 Hz' : rawAcoustic,
+      acousticStatus: !isAcousticDetected ? 'Not Detected (0 Hz)' : (data['acousticStatus'] ?? 'Normal'),
       wifiStatus: data['wifiStatus'] ?? 'Connected',
       batteryLevel: data['batteryLevel'] ?? '90%',
       updated: data['updated'] ?? 'Just now',
       signalBars: (data['signalBars'] as num?)?.toInt() ?? 4,
-      explanation: data['explanation'] ??
-          'The AI analyzed the hive\'s acoustic, temperature, and humidity data and classified the colony state.',
-      queenPresentDetected: data['queenPresentDetected'] ?? isPresent,
-      queenAbsentDetected: data['queenAbsentDetected'] ?? isAbsent,
-      queenAcceptedDetected: data['queenAcceptedDetected'] ?? isAccepted,
-      queenRejectedDetected: data['queenRejectedDetected'] ?? isRejected,
-      recommendation: data['recommendation'] ??
-          (isAbsent
-              ? 'Inspect frames for emergency queen cells.'
-              : (isRejected
-                  ? 'Check release cage and examine worker agitation.'
-                  : 'Colony is queenright and stable. Continue regular monitoring.')),
+      explanation: !isAcousticDetected
+          ? 'No bee buzz detected (0 Hz / Silence). Ensure the microphone is connected and placed near the hive cluster.'
+          : (data['explanation'] ??
+              'The AI analyzed the hive\'s acoustic, temperature, and humidity data and classified the colony state.'),
+      queenPresentDetected: isPresent,
+      queenAbsentDetected: isAbsent,
+      queenAcceptedDetected: isAccepted,
+      queenRejectedDetected: isRejected,
+      recommendation: !isAcousticDetected
+          ? 'Awaiting acoustic signal from colony. Routine monitoring active.'
+          : (data['recommendation'] ??
+              (isAbsent
+                  ? 'Inspect frames for emergency queen cells.'
+                  : (isRejected
+                      ? 'Check release cage and examine worker agitation.'
+                      : 'Colony is queenright and stable. Continue regular monitoring.'))),
       historyDates: data['historyDates'] != null
           ? List<String>.from(data['historyDates'])
           : const [],
       temperatureHistory: parseDoubleList(data['temperatureHistory'], const []),
       humidityHistory: parseDoubleList(data['humidityHistory'], const []),
       acousticHistory: parseDoubleList(data['acousticHistory'], const []),
-      isAlert: data['isAlert'] ?? (isAbsent || isRejected),
-      alertSeverity: data['alertSeverity'] ?? (isAbsent ? 'Critical' : (isRejected ? 'Warning' : 'Info')),
-      alertLabel: data['alertLabel'] ?? condition,
-      alertMessage: data['alertMessage'] ?? (isAbsent ? 'Colony is Queenless.' : (isRejected ? 'Colony rejecting queen.' : 'Colony is stable.')),
+      isAlert: !isAcousticDetected ? false : (data['isAlert'] ?? (isAbsent || isRejected)),
+      alertSeverity: !isAcousticDetected ? 'Info' : (data['alertSeverity'] ?? (isAbsent ? 'Critical' : (isRejected ? 'Warning' : 'Info'))),
+      alertLabel: condition,
+      alertMessage: !isAcousticDetected
+          ? 'No Buzz Detected'
+          : (data['alertMessage'] ??
+              (isAbsent
+                  ? 'Colony is Queenless.'
+                  : (isRejected
+                      ? 'Colony rejecting queen.'
+                      : 'Colony is stable.'))),
       alertTime: data['alertTime'] ?? 'Just now',
       detectedBy: data['detectedBy'] ?? 'ESP32 & AI Acoustic Model',
-      alertRecommendation: data['alertRecommendation'] ??
-          (isAbsent
-              ? 'Inspect frames for emergency queen cells.'
-              : (isRejected
-                  ? 'Check release cage and examine worker agitation.'
-                  : 'Continue regular inspection routine.')),
+      alertRecommendation: !isAcousticDetected
+          ? 'Ensure microphone is connected.'
+          : (data['alertRecommendation'] ??
+              (isAbsent
+                  ? 'Inspect frames for emergency queen cells.'
+                  : (isRejected
+                      ? 'Check release cage and examine worker agitation.'
+                      : 'Continue regular inspection routine.'))),
       audioFilePath: data['audioFilePath'] ?? data['audio_file_path'],
     );
   }
@@ -303,32 +337,32 @@ class HiveData {
       name: 'Hive 1',
       deviceId: 'BW-001-ALPHA',
       notes: 'South garden station',
-      conditionLabel: 'Queen Present',
-      confidence: 95,
-      healthScore: 95,
+      conditionLabel: 'No Buzz Detected',
+      confidence: 0,
+      healthScore: 0,
       temperature: '34.2',
       humidity: '64',
-      acoustic: '205 Hz',
-      acousticStatus: 'Stable',
+      acoustic: '0 Hz',
+      acousticStatus: 'Not Detected (0 Hz)',
       wifiStatus: 'Connected',
       batteryLevel: '95%',
       updated: 'Just Now',
       signalBars: 4,
       explanation:
-          'The AI acoustic model detected stable queen piping frequencies (205 Hz) and normal hive hum, confirming Queen Presence.',
-      queenPresentDetected: true,
+          'No bee buzz detected (0 Hz / Silence). Ensure the microphone is connected and placed near the hive cluster.',
+      queenPresentDetected: false,
       queenAbsentDetected: false,
       queenAcceptedDetected: false,
       queenRejectedDetected: false,
       recommendation:
-          'Colony is queenright and healthy. Continue routine monitoring.',
+          'Awaiting acoustic signal from colony. Routine monitoring active.',
       isAlert: false,
       alertSeverity: 'Info',
-      alertLabel: 'Queen Present',
-      alertMessage: 'Queen is active and laying normally.',
-      alertTime: '1 hour ago',
+      alertLabel: 'No Buzz Detected',
+      alertMessage: 'Awaiting acoustic signal from colony.',
+      alertTime: 'Just now',
       detectedBy: 'AI Multi-Sensor Acoustic Model',
-      alertRecommendation: 'Continue standard weekly inspections.',
+      alertRecommendation: 'Ensure microphone is connected.',
     ),
     HiveData(
       id: 'hive_2',
