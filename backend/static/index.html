@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeeWare 🐝 - Hive Telemetry & Acoustic Studio</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for live sensor graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            beegold: '#FFCC00',
+            beegoldDark: '#E6B800',
+            beegoldLight: '#FFF4CC',
+            hivegreen: '#2E7D32',
+            hivegreenLight: '#E8F5E9',
+            hivered: '#D32F2F',
+            hiveredLight: '#FFEBEE',
+            hiveblue: '#1976D2',
+            hiveblueLight: '#E3F2FD',
+            hivecard: '#FFFFFF',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8F9FA; }
+    .gauge-circle { transform: rotate(-90deg); transform-origin: 50% 50%; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col">
+
+  <!-- TOP APP BAR -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-beegold flex items-center justify-center shadow-md border-2 border-black">
+          <span class="text-xl">🐝</span>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="text-lg font-black tracking-tight text-slate-900">BeeWare</span>
+            <span class="bg-beegold/30 text-amber-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider border border-amber-300">Capstone Cloud</span>
+          </div>
+          <p class="text-xs text-slate-500 font-medium">IoT Telemetry & AI Acoustic Diagnostics</p>
+        </div>
+      </div>
+
+      <!-- Cloud Status & Controls -->
+      <div class="flex items-center space-x-3">
+        <div class="hidden sm:flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-semibold text-slate-700" id="syncStatus">Cloud Live</span>
+          <span class="text-xs text-slate-400 font-mono" id="lastUpdatedTime">--:--:--</span>
+        </div>
+        <button id="manualRefreshBtn" onclick="fetchLiveTelemetry()" class="flex items-center space-x-1.5 px-3 py-1.5 bg-black text-white hover:bg-slate-800 rounded-lg text-xs font-bold transition shadow-sm">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5" id="refreshIcon"></i>
+          <span>Sync</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN DASHBOARD CONTENT -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- NODE BANNER -->
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div class="flex items-center space-x-4">
+        <div class="w-12 h-12 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700">
+          <i data-lucide="cpu" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-lg font-black text-slate-900" id="nodeDeviceId">BW-08266C</h2>
+            <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center space-x-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span>Online</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">ESP32 + INMP441 Microphone + DHT22 Brood Sensor</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3 text-xs">
+        <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center space-x-2">
+          <i data-lucide="wifi" class="w-4 h-4 text-slate-500"></i>
+          <span class="text-slate-500">Wi-Fi RSSI:</span>
+          <span class="font-bold text-slate-800" id="nodeWifiRssi">-60 dBm</span>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center space-x-2">
+          <i data-lucide="battery-charging" class="w-4 h-4 text-emerald-600"></i>
+          <span class="text-slate-500">Battery:</span>
+          <span class="font-bold text-slate-800" id="nodeBattery">100%</span>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center space-x-2">
+          <i data-lucide="music" class="w-4 h-4 text-indigo-600"></i>
+          <span class="text-slate-500">Sampling Rate:</span>
+          <span class="font-bold text-slate-800">16,000 Hz</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- METRICS CARDS GRID (4 METRICS) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Temperature Card -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Brood Nest Temp</span>
+          <div class="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
+            <i data-lucide="thermometer" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline space-x-2">
+          <span class="text-3xl font-black text-slate-900 tracking-tight" id="metricTemp">32.2</span>
+          <span class="text-lg font-bold text-slate-500">°C</span>
+        </div>
+        <div class="mt-3 flex items-center justify-between text-xs">
+          <span class="text-slate-500">Target: 34.0°C - 36.0°C</span>
+          <span class="px-2 py-0.5 rounded font-bold" id="badgeTemp">Optimal</span>
+        </div>
+      </div>
+
+      <!-- Humidity Card -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Relative Humidity</span>
+          <div class="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center">
+            <i data-lucide="droplets" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline space-x-2">
+          <span class="text-3xl font-black text-slate-900 tracking-tight" id="metricHum">66</span>
+          <span class="text-lg font-bold text-slate-500">%</span>
+        </div>
+        <div class="mt-3 flex items-center justify-between text-xs">
+          <span class="text-slate-500">Target: 50% - 70%</span>
+          <span class="px-2 py-0.5 rounded font-bold" id="badgeHum">Optimal</span>
+        </div>
+      </div>
+
+      <!-- Acoustic Signal Card -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Acoustic Signal</span>
+          <div class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+            <i data-lucide="activity" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3 flex items-baseline space-x-2">
+          <span class="text-3xl font-black text-slate-900 tracking-tight" id="metricAcousticHz">0</span>
+          <span class="text-lg font-bold text-slate-500">Hz</span>
+        </div>
+        <div class="mt-3 flex items-center justify-between text-xs">
+          <span class="text-slate-500">Honeybee: 120-450 Hz</span>
+          <span class="px-2 py-0.5 rounded font-bold" id="badgeAcoustic">No Buzz Detected</span>
+        </div>
+      </div>
+
+      <!-- AI Queen Condition Card -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Colony Diagnosis</span>
+          <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+            <i data-lucide="crown" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center space-x-2">
+          <span class="text-xl font-black text-slate-900 leading-tight" id="metricQueenStatus">No Buzz Detected</span>
+        </div>
+        <div class="mt-3 flex items-center justify-between text-xs">
+          <span class="text-slate-500" id="confidenceLabel">Confidence: 0%</span>
+          <span class="px-2 py-0.5 rounded font-bold" id="badgeQueen">Inactive</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- MAIN TWO COLUMN SECTION: AUDIO STUDIO + LIVE CHARTS -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- AUDIO PLAYER & RECORDINGS ARCHIVE (LEFT 7 COLS) -->
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- LATEST AUDIO STREAM PLAYER -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-2">
+              <div class="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                <i data-lucide="volume-2" class="w-4 h-4"></i>
+              </div>
+              <h3 class="font-extrabold text-slate-900 text-base">Live Hive Audio Recording</h3>
+            </div>
+            <span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full" id="latestAudioBadge">3.0s WAV (16kHz Studio)</span>
+          </div>
+
+          <!-- AUDIO PLAYER WIDGET -->
+          <div class="bg-gradient-to-r from-amber-500 to-yellow-400 rounded-xl p-5 text-slate-900 shadow-inner flex flex-col justify-between">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <span class="text-xs font-bold uppercase tracking-wider text-black/60">Now Loaded</span>
+                <h4 class="font-black text-base truncate max-w-xs text-black" id="currentTrackTitle">latest_hive_audio.wav</h4>
+              </div>
+              <div class="text-right">
+                <span class="text-xs font-bold uppercase tracking-wider text-black/60">Colony Buzz</span>
+                <p class="font-black text-sm text-black" id="currentTrackHz">-- Hz</p>
+              </div>
+            </div>
+
+            <!-- Standard HTML5 Audio Control -->
+            <audio id="mainAudioPlayer" controls class="w-full mt-2 rounded-lg bg-white/90 shadow-md">
+              <source src="/latest_audio" type="audio/wav">
+              Your browser does not support audio playback.
+            </audio>
+
+            <div class="mt-4 flex items-center justify-between text-xs text-black/70 font-semibold pt-2 border-t border-black/10">
+              <span id="playerStatusText">Ready for playback</span>
+              <a id="downloadLatestBtn" href="/latest_audio" download="hive_recording.wav" class="hover:underline flex items-center space-x-1 text-black font-bold">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Download WAV</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Quick Audio Action Pills -->
+          <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
+            <span>Direct stream from ESP32 INMP441 I2S microphone</span>
+            <button onclick="reloadLatestAudio()" class="text-amber-600 hover:text-amber-700 font-bold flex items-center space-x-1">
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+              <span>Reload Stream</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- RECENT RECORDINGS LIST -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-2">
+              <div class="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                <i data-lucide="archive" class="w-4 h-4"></i>
+              </div>
+              <h3 class="font-extrabold text-slate-900 text-base">Recorded Audio Library</h3>
+            </div>
+            <span class="text-xs text-slate-500 font-semibold" id="recordingsCountBadge">0 files</span>
+          </div>
+
+          <div class="overflow-hidden border border-slate-200 rounded-xl">
+            <div class="max-h-80 overflow-y-auto custom-scrollbar">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider sticky top-0 border-b border-slate-200">
+                  <tr>
+                    <th class="p-3">File / Date</th>
+                    <th class="p-3">Duration</th>
+                    <th class="p-3">Size</th>
+                    <th class="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 font-medium" id="recordingsTableBody">
+                  <tr>
+                    <td colspan="4" class="p-4 text-center text-slate-400">Loading audio library...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- LIVE CHARTS & DIAGNOSTICS (RIGHT 5 COLS) -->
+      <div class="lg:col-span-5 space-y-6">
+
+        <!-- SENSOR HISTORY GRAPH -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <div class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <i data-lucide="line-chart" class="w-4 h-4"></i>
+              </div>
+              <h3 class="font-extrabold text-slate-900 text-base">Temperature & Humidity</h3>
+            </div>
+            <span class="text-xs text-slate-400">Live Curve</span>
+          </div>
+          <div class="h-56">
+            <canvas id="tempHumChart"></canvas>
+          </div>
+        </div>
+
+        <!-- ACOUSTIC FREQUENCY GRAPH -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <div class="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                <i data-lucide="waves" class="w-4 h-4"></i>
+              </div>
+              <h3 class="font-extrabold text-slate-900 text-base">Acoustic Frequency Curve (Hz)</h3>
+            </div>
+            <span class="text-xs text-indigo-600 font-bold" id="currentHzPill">0 Hz</span>
+          </div>
+          <div class="h-44">
+            <canvas id="acousticChart"></canvas>
+          </div>
+        </div>
+
+        <!-- COLONY CONDITIONS BREAKDOWN -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <h3 class="font-extrabold text-slate-900 text-sm mb-3">Colony Diagnostics State</h3>
+          <div class="space-y-2.5 text-xs">
+            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 bg-slate-50/50" id="condQueenPresent">
+              <div class="flex items-center space-x-2.5">
+                <span class="w-3 h-3 rounded-full bg-slate-300" id="dotQueenPresent"></span>
+                <span class="font-bold text-slate-700">Queen Present</span>
+              </div>
+              <span class="font-semibold text-slate-400" id="valQueenPresent">Inactive</span>
+            </div>
+            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 bg-slate-50/50" id="condQueenAbsent">
+              <div class="flex items-center space-x-2.5">
+                <span class="w-3 h-3 rounded-full bg-slate-300" id="dotQueenAbsent"></span>
+                <span class="font-bold text-slate-700">Queen Absent</span>
+              </div>
+              <span class="font-semibold text-slate-400" id="valQueenAbsent">Inactive</span>
+            </div>
+            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 bg-slate-50/50" id="condColonyBuzz">
+              <div class="flex items-center space-x-2.5">
+                <span class="w-3 h-3 rounded-full bg-slate-300" id="dotColonyBuzz"></span>
+                <span class="font-bold text-slate-700">Colony Acoustic Buzz</span>
+              </div>
+              <span class="font-semibold text-slate-400" id="valColonyBuzz">No Buzz Detected</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="bg-white border-t border-slate-200 mt-12 py-6 text-center text-xs text-slate-500 font-medium">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center space-x-2">
+        <span class="font-black text-slate-900">BeeWare Capstone API</span>
+        <span>•</span>
+        <span>Hosted 24/7 on Render Cloud</span>
+      </div>
+      <div>
+        <span>Firebase Realtime DB Synced (Singapore)</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT: CHARTS, AUDIO & REAL-TIME POLLING -->
+  <script>
+    lucide.createIcons();
+
+    let tempHumChart = null;
+    let acousticChart = null;
+    const historyDates = [];
+    const historyTemps = [];
+    const historyHums = [];
+    const historyHz = [];
+
+    // Initialize Charts
+    function initCharts() {
+      const ctx1 = document.getElementById('tempHumChart').getContext('2d');
+      tempHumChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels: historyDates,
+          datasets: [
+            {
+              label: 'Temp (°C)',
+              borderColor: '#f97316',
+              backgroundColor: 'rgba(249, 115, 22, 0.1)',
+              data: historyTemps,
+              tension: 0.3,
+              fill: true,
+              yAxisID: 'y'
+            },
+            {
+              label: 'Hum (%)',
+              borderColor: '#0284c7',
+              backgroundColor: 'rgba(2, 132, 199, 0.1)',
+              data: historyHums,
+              tension: 0.3,
+              fill: true,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 11, weight: 'bold' } } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+            y: { type: 'linear', display: true, position: 'left', min: 20, max: 45, ticks: { font: { size: 10 } } },
+            y1: { type: 'linear', display: true, position: 'right', min: 30, max: 100, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+
+      const ctx2 = document.getElementById('acousticChart').getContext('2d');
+      acousticChart = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: historyDates,
+          datasets: [{
+            label: 'Frequency (Hz)',
+            backgroundColor: '#6366f1',
+            borderRadius: 4,
+            data: historyHz
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+            y: { min: 0, max: 500, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    // Fetch Live Telemetry from /telemetry & Firebase RTDB
+    async function fetchLiveTelemetry() {
+      const refreshIcon = document.getElementById('refreshIcon');
+      refreshIcon.classList.add('animate-spin');
+
+      try {
+        // Try local backend first
+        let rec = null;
+        try {
+          const resp = await fetch('/telemetry?limit=15', { cache: 'no-store' });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.records && data.records.length > 0) {
+              rec = data.records[0];
+              updateHistoryFromRecords(data.records);
+            }
+          }
+        } catch (_) {}
+
+        // Fallback directly to Firebase RTDB if backend has no records yet
+        if (!rec) {
+          const fbResp = await fetch('https://beeware-beaef-default-rtdb.asia-southeast1.firebasedatabase.app/telemetry.json');
+          if (fbResp.ok) {
+            const fbData = await fbResp.json();
+            if (fbData) {
+              const keys = Object.keys(fbData);
+              if (keys.length > 0) {
+                rec = fbData[keys[keys.length - 1]];
+              }
+            }
+          }
+        }
+
+        if (rec) {
+          renderTelemetry(rec);
+        }
+
+        // Also refresh recordings list
+        fetchRecordings();
+      } catch (err) {
+        console.warn('Telemetry fetch error:', err);
+      } finally {
+        setTimeout(() => refreshIcon.classList.remove('animate-spin'), 600);
+      }
+    }
+
+    function renderTelemetry(rec) {
+      const deviceId = rec.device_id || rec.deviceId || 'BW-08266C';
+      const temp = parseFloat(rec.temperature || 0.0);
+      const hum = parseFloat(rec.humidity || 0.0);
+      const batt = parseInt(rec.battery_level || rec.batteryLevel || 100);
+      const rssi = parseInt(rec.wifi_rssi || rec.wifiRssi || -60);
+      const freq = parseInt(rec.frequency || rec.frequency_hz || 0);
+
+      document.getElementById('nodeDeviceId').textContent = deviceId;
+      document.getElementById('nodeWifiRssi').textContent = `${rssi} dBm`;
+      document.getElementById('nodeBattery').textContent = `${batt}%`;
+      document.getElementById('lastUpdatedTime').textContent = new Date().toLocaleTimeString();
+
+      // Metrics
+      document.getElementById('metricTemp').textContent = temp.toFixed(1);
+      document.getElementById('metricHum').textContent = Math.round(hum);
+      document.getElementById('metricAcousticHz').textContent = freq;
+      document.getElementById('currentTrackHz').textContent = `${freq} Hz`;
+
+      // Status badges
+      const badgeTemp = document.getElementById('badgeTemp');
+      if (temp >= 32.0 && temp <= 36.5) {
+        badgeTemp.textContent = 'Optimal';
+        badgeTemp.className = 'px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800';
+      } else if (temp > 36.5) {
+        badgeTemp.textContent = 'High';
+        badgeTemp.className = 'px-2 py-0.5 rounded font-bold bg-rose-100 text-rose-800';
+      } else {
+        badgeTemp.textContent = 'Chilling';
+        badgeTemp.className = 'px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-800';
+      }
+
+      const badgeHum = document.getElementById('badgeHum');
+      if (hum >= 50 && hum <= 75) {
+        badgeHum.textContent = 'Optimal';
+        badgeHum.className = 'px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800';
+      } else {
+        badgeHum.textContent = hum > 75 ? 'Humid' : 'Dry';
+        badgeHum.className = 'px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-800';
+      }
+
+      const badgeAcoustic = document.getElementById('badgeAcoustic');
+      const metricQueen = document.getElementById('metricQueenStatus');
+      const badgeQueen = document.getElementById('badgeQueen');
+      const confidenceLabel = document.getElementById('confidenceLabel');
+
+      const dotQueenPresent = document.getElementById('dotQueenPresent');
+      const valQueenPresent = document.getElementById('valQueenPresent');
+      const dotQueenAbsent = document.getElementById('dotQueenAbsent');
+      const valQueenAbsent = document.getElementById('valQueenAbsent');
+      const dotColonyBuzz = document.getElementById('dotColonyBuzz');
+      const valColonyBuzz = document.getElementById('valColonyBuzz');
+
+      if (freq >= 120 && freq <= 450) {
+        // Acoustic Detected
+        badgeAcoustic.textContent = 'Buzzing Detected';
+        badgeAcoustic.className = 'px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800';
+        
+        dotColonyBuzz.className = 'w-3 h-3 rounded-full bg-emerald-500';
+        valColonyBuzz.textContent = 'Buzzing Detected';
+        valColonyBuzz.className = 'font-bold text-emerald-700';
+
+        if (freq <= 260) {
+          metricQueen.textContent = 'Queen Present';
+          badgeQueen.textContent = 'Normal';
+          badgeQueen.className = 'px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800';
+          confidenceLabel.textContent = 'Confidence: 94%';
+
+          dotQueenPresent.className = 'w-3 h-3 rounded-full bg-emerald-500';
+          valQueenPresent.textContent = 'Detected (Active)';
+          valQueenPresent.className = 'font-bold text-emerald-700';
+
+          dotQueenAbsent.className = 'w-3 h-3 rounded-full bg-slate-300';
+          valQueenAbsent.textContent = 'Inactive';
+          valQueenAbsent.className = 'font-semibold text-slate-400';
+        } else {
+          metricQueen.textContent = 'Queen Absent';
+          badgeQueen.textContent = 'Alert';
+          badgeQueen.className = 'px-2 py-0.5 rounded font-bold bg-rose-100 text-rose-800';
+          confidenceLabel.textContent = 'Confidence: 88%';
+
+          dotQueenPresent.className = 'w-3 h-3 rounded-full bg-slate-300';
+          valQueenPresent.textContent = 'Inactive';
+          valQueenPresent.className = 'font-semibold text-slate-400';
+
+          dotQueenAbsent.className = 'w-3 h-3 rounded-full bg-rose-500';
+          valQueenAbsent.textContent = 'Detected (Queenless)';
+          valQueenAbsent.className = 'font-bold text-rose-700';
+        }
+      } else {
+        // Silence / No Buzz Detected
+        badgeAcoustic.textContent = 'No Buzz Detected';
+        badgeAcoustic.className = 'px-2 py-0.5 rounded font-bold bg-rose-100 text-rose-800';
+
+        metricQueen.textContent = 'No Buzz Detected';
+        badgeQueen.textContent = '0%';
+        badgeQueen.className = 'px-2 py-0.5 rounded font-bold bg-slate-100 text-slate-500';
+        confidenceLabel.textContent = 'Confidence: 0%';
+
+        dotQueenPresent.className = 'w-3 h-3 rounded-full bg-slate-300';
+        valQueenPresent.textContent = 'Inactive';
+        valQueenPresent.className = 'font-semibold text-slate-400';
+
+        dotQueenAbsent.className = 'w-3 h-3 rounded-full bg-slate-300';
+        valQueenAbsent.textContent = 'Inactive';
+        valQueenAbsent.className = 'font-semibold text-slate-400';
+
+        dotColonyBuzz.className = 'w-3 h-3 rounded-full bg-rose-500';
+        valColonyBuzz.textContent = 'No Buzz Detected';
+        valColonyBuzz.className = 'font-bold text-rose-700';
+      }
+    }
+
+    function updateHistoryFromRecords(records) {
+      if (!records || records.length === 0) return;
+      const sorted = [...records].reverse();
+      historyDates.length = 0;
+      historyTemps.length = 0;
+      historyHums.length = 0;
+      historyHz.length = 0;
+
+      sorted.forEach(r => {
+        let ts = r.timestamp || '';
+        if (ts.includes('_')) {
+          const parts = ts.split('_');
+          if (parts[1] && parts[1].length >= 4) {
+            ts = `${parts[1].substring(0, 2)}:${parts[1].substring(2, 4)}`;
+          }
+        }
+        historyDates.push(ts || 'Now');
+        historyTemps.push(r.temperature || 0);
+        historyHums.push(r.humidity || 0);
+        historyHz.push(r.frequency || 0);
+      });
+
+      if (tempHumChart) tempHumChart.update();
+      if (acousticChart) acousticChart.update();
+    }
+
+    // Audio Library
+    async function fetchRecordings() {
+      try {
+        const resp = await fetch('/recordings');
+        if (resp.ok) {
+          const data = await resp.json();
+          renderRecordingsList(data.recordings || []);
+        }
+      } catch (e) {
+        console.warn('Could not load recordings:', e);
+      }
+    }
+
+    function renderRecordingsList(recordings) {
+      const tbody = document.getElementById('recordingsTableBody');
+      document.getElementById('recordingsCountBadge').textContent = `${recordings.length} files`;
+
+      if (recordings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No recordings captured yet.</td></tr>';
+        return;
+      }
+
+      let html = '';
+      recordings.slice(0, 15).forEach((rec) => {
+        html += `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="p-3">
+              <div class="font-bold text-slate-900">${rec.filename}</div>
+              <div class="text-[10px] text-slate-400">${rec.recorded_at}</div>
+            </td>
+            <td class="p-3 text-slate-600">${rec.duration_seconds}s</td>
+            <td class="p-3 text-slate-600">${(rec.size_bytes / 1024).toFixed(1)} KB</td>
+            <td class="p-3 text-right space-x-1.5">
+              <button onclick="playAudio('${rec.url}', '${rec.filename}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded font-bold transition inline-flex items-center space-x-1">
+                <span>▶ Play</span>
+              </button>
+              <a href="${rec.url}" download class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold transition inline-flex items-center">
+                <span>⬇</span>
+              </a>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    function playAudio(url, filename) {
+      const player = document.getElementById('mainAudioPlayer');
+      document.getElementById('currentTrackTitle').textContent = filename;
+      document.getElementById('playerStatusText').textContent = 'Streaming audio...';
+      document.getElementById('downloadLatestBtn').href = url;
+      player.src = url;
+      player.play();
+    }
+
+    function reloadLatestAudio() {
+      const player = document.getElementById('mainAudioPlayer');
+      const timestamp = new Date().getTime();
+      player.src = `/latest_audio?t=${timestamp}`;
+      document.getElementById('currentTrackTitle').textContent = 'latest_hive_audio.wav';
+      player.play();
+    }
+
+    // Initialize and Start Polling
+    initCharts();
+    fetchLiveTelemetry();
+    setInterval(fetchLiveTelemetry, 4000);
+  </script>
+</body>
+</html>

@@ -22,7 +22,8 @@ if hasattr(sys.stderr, "reconfigure"):
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Security, Depends, status, Request, BackgroundTasks
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, ConfigDict
@@ -34,6 +35,8 @@ load_dotenv(BASE_DIR / ".env")
 # Directories and Database
 RECORDINGS_DIR = BASE_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = BASE_DIR / "beeware.db"
 
 # Security & API Key
@@ -221,6 +224,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Mount static web dashboard assets
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # ======================== REQUEST LOGGING MIDDLEWARE ========================
@@ -621,9 +627,43 @@ async def health_check() -> Dict[str, str]:
     }
 
 
-@app.api_route("/", methods=["GET", "HEAD"])
-async def root() -> Dict[str, str]:
-    return {"message": "BeeWare Hive Alert & IoT Telemetry API is running"}
+@app.api_route("/api", methods=["GET", "HEAD"])
+async def api_info() -> Dict[str, Any]:
+    """JSON API status and endpoint directory."""
+    return {
+        "service": "BeeWare Hive Alert & IoT Telemetry API",
+        "status": "online",
+        "version": "2.0.0",
+        "environment": ENVIRONMENT,
+        "endpoints": {
+            "web_dashboard": "/",
+            "api_info": "/api",
+            "health": "/health",
+            "telemetry": "/telemetry",
+            "recordings": "/recordings",
+            "latest_audio": "/latest_audio",
+            "docs": "/docs",
+        },
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Serves the visual BeeWare Web Dashboard."""
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
+    return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+            <head><title>BeeWare API</title></head>
+            <body style="font-family:sans-serif;text-align:center;padding:50px;">
+                <h1>🐝 BeeWare Hive Alert & IoT Telemetry API</h1>
+                <p>Status: Online</p>
+                <p><a href="/docs">View Interactive API Documentation</a></p>
+            </body>
+        </html>
+    """)
 
 
 @app.post("/telemetry")
@@ -678,8 +718,8 @@ async def ingest_telemetry(
 
 
 @app.get("/telemetry")
-async def list_telemetry_records(limit: int = 50, _auth: str = Depends(verify_api_key)):
-    """Retrieves recent telemetry records stored in SQLite."""
+async def list_telemetry_records(limit: int = 50):
+    """Retrieves recent telemetry records stored in SQLite (public for web dashboard)."""
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -693,6 +733,29 @@ async def list_telemetry_records(limit: int = 50, _auth: str = Depends(verify_ap
         return {"records": result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database query error: {exc}")
+
+
+@app.get("/latest_audio")
+async def get_latest_audio():
+    """Streams the most recent audio recording WAV file or latest_hive_audio.wav."""
+    root_latest = BASE_DIR / "latest_hive_audio.wav"
+    if root_latest.exists() and root_latest.stat().st_size > 44:
+        return FileResponse(path=str(root_latest), media_type="audio/wav", filename="latest_hive_audio.wav")
+
+    rec_latest = RECORDINGS_DIR / "latest_hive_audio.wav"
+    if rec_latest.exists() and rec_latest.stat().st_size > 44:
+        return FileResponse(path=str(rec_latest), media_type="audio/wav", filename="latest_hive_audio.wav")
+
+    wav_files = sorted(
+        RECORDINGS_DIR.glob("*.wav"),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+    for w in wav_files:
+        if w.stat().st_size > 44:
+            return FileResponse(path=str(w), media_type="audio/wav", filename=w.name)
+
+    raise HTTPException(status_code=404, detail="No audio recordings available yet.")
 
 
 @app.get("/recordings")
