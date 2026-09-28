@@ -23,10 +23,10 @@ const char* WIFI_PASSWORD = "XTF2eTAR";
 // Firebase Realtime Database (Singapore) — accessible globally via Starlink / Mobile Data
 const char* FIREBASE_HOST = "beeware-beaef-default-rtdb.asia-southeast1.firebasedatabase.app";
 
-// Local Backend Server (FastAPI on PC)
-// Set to your PC's IP address on the Wi-Fi network (or auto-updated by UDP discovery)
-char backendHost[64]      = "192.168.254.112";
-const int   BACKEND_PORT  = 8000;
+// BeeWare Cloud Backend (Render.com) or Local PC
+// Points to public Render cloud domain by default; auto-switches to local IP if UDP discovered on LAN
+char backendHost[64]      = "beeware-capstone.onrender.com";
+int  backendPort          = 443;
 const char* API_KEY       = "beeware_secret_key_default";
 // NOTE: Device ID is auto-generated from MAC address — see getDeviceId() below
 
@@ -297,18 +297,27 @@ void sendTelemetryToFirebase(float temp, float hum, int battery, int rssi, int32
 // ======================== STREAM TELEMETRY & 3-SEC AUDIO ========================
 void streamTelemetryAndAudio(float temp, float hum, int battery, int rssi, int freqHz) {
   if (strlen(backendHost) == 0 || String(backendHost) == "0.0.0.0") {
-    Serial.println("ℹ️ Local backend host not configured — skipped local audio stream. Telemetry delivered to Firebase Cloud.");
+    Serial.println("ℹ️ Backend host not configured — skipped audio stream. Telemetry delivered to Firebase Cloud.");
     return;
   }
 
-  WiFiClient client;
-  Serial.printf("🔌 Connecting to backend at %s:%d...\n", backendHost, BACKEND_PORT);
-  
-  client.setTimeout(5); // 5-second socket timeout
+  bool isHttps = (backendPort == 443);
+  WiFiClientSecure secureClient;
+  WiFiClient plainClient;
+  Client& client = isHttps ? static_cast<Client&>(secureClient) : static_cast<Client&>(plainClient);
 
-  if (!client.connect(backendHost, BACKEND_PORT)) {
+  if (isHttps) {
+    secureClient.setInsecure(); // SSL/TLS connection without CA cert checks
+    secureClient.setTimeout(10000); // 10s for SSL handshake and cloud response
+  } else {
+    plainClient.setTimeout(5000);
+  }
+
+  Serial.printf("🔌 Connecting to backend at %s:%d (%s)...\n", backendHost, backendPort, isHttps ? "HTTPS" : "HTTP");
+
+  if (!client.connect(backendHost, backendPort)) {
     Serial.printf("⚠️ Connection to backend (%s:%d) offline. Telemetry & frequency (%d Hz) delivered to Firebase Cloud.\n",
-                  backendHost, BACKEND_PORT, freqHz);
+                  backendHost, backendPort, freqHz);
     return;
   }
 
@@ -337,7 +346,11 @@ void streamTelemetryAndAudio(float temp, float hum, int battery, int rssi, int f
 
   // Send HTTP Header
   client.print("POST /telemetry HTTP/1.1\r\n");
-  client.print("Host: " + String(backendHost) + ":" + String(BACKEND_PORT) + "\r\n");
+  if (backendPort == 443 || backendPort == 80) {
+    client.print("Host: " + String(backendHost) + "\r\n");
+  } else {
+    client.print("Host: " + String(backendHost) + ":" + String(backendPort) + "\r\n");
+  }
   client.print("Content-Type: application/json\r\n");
   client.print("X-API-Key: " + String(API_KEY) + "\r\n");
   client.print("Content-Length: " + String(contentLength) + "\r\n");
@@ -593,7 +606,8 @@ void setup() {
               *endPos = '\0';
               strncpy(backendHost, hostPos, sizeof(backendHost) - 1);
               backendHost[sizeof(backendHost) - 1] = '\0';
-              Serial.printf("🎯 [AUTO-DISCOVERY] Backend discovered at %s:%d\n", backendHost, BACKEND_PORT);
+              backendPort = 8000;
+              Serial.printf("🎯 [AUTO-DISCOVERY] Backend discovered at %s:%d\n", backendHost, backendPort);
               break;
             }
           }
