@@ -131,6 +131,23 @@ def initialize_firebase() -> Optional[Any]:
         except Exception:
             return None
 
+    # 1. Check environment variable (raw JSON or base64 encoded)
+    env_creds = os.getenv("FIREBASE_SERVICE_ACCOUNT") or os.getenv("FIREBASE_CREDENTIALS")
+    if env_creds:
+        try:
+            raw = env_creds.strip()
+            if raw.startswith("{"):
+                cred_dict = json.loads(raw)
+            else:
+                cred_dict = json.loads(base64.b64decode(raw).decode("utf-8"))
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("🔥 [FIREBASE INIT] Authenticated successfully via environment variable.")
+            return firestore.client()
+        except Exception as exc:
+            print(f"⚠️ Firebase init from env var failed: {exc}")
+
+    # 2. Check file path credentials
     service_account_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     default_key_path = BASE_DIR / "serviceAccountKey.json"
 
@@ -144,6 +161,7 @@ def initialize_firebase() -> Optional[Any]:
         try:
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
+            print(f"🔥 [FIREBASE INIT] Authenticated successfully using {cred_path}")
             return firestore.client()
         except Exception as exc:
             print(f"⚠️ Firebase initialization skipped: {exc}")
@@ -476,54 +494,124 @@ def process_telemetry_background(
         filename=Path(audio_file_path).name if audio_file_path else None,
     )
 
-    # 5. Optional Cloud Firestore sync if configured
+    # 5. Cloud Firestore sync (updates matching mobile app hives in real time)
     try:
         fb_client = initialize_firebase()
         if fb_client:
-            hive_id = f"hive_{device_id.lower().replace('-', '_')}"
+            has_buzz = frequency > 0
+            condition = "Queen Present" if (has_buzz and frequency <= 260) else ("Queen Absent" if frequency > 260 else "No Buzz Detected")
             hive_doc = {
                 "deviceId": device_id,
                 "temperature": f"{temp:.1f}",
                 "humidity": f"{hum:.0f}",
                 "frequency": frequency,
                 "frequency_hz": frequency,
-                "acoustic": f"{frequency} Hz" if frequency > 0 else "0 Hz",
-                "acousticStatus": "Normal" if frequency > 0 else "Not Detected (0 Hz)",
+                "acoustic": f"{frequency} Hz" if has_buzz else "0 Hz",
+                "acousticStatus": "Normal" if has_buzz else "Not Detected (0 Hz)",
+                "conditionLabel": condition,
+                "alertLabel": condition,
+                "alertMessage": "Colony is queenright and healthy." if (has_buzz and frequency <= 260) else ("Colony is Queenless." if frequency > 260 else "No Buzz Detected"),
+                "confidence": 95 if has_buzz else 0,
+                "healthScore": 94 if has_buzz else 0,
+                "queenPresentDetected": has_buzz and frequency <= 260,
+                "queenAbsentDetected": has_buzz and frequency > 260,
+                "queenAcceptedDetected": False,
+                "queenRejectedDetected": False,
                 "batteryLevel": f"{battery_level}%",
+                "wifiStatus": "Connected",
                 "wifiRssi": wifi_rssi,
+                "updated": "Just now",
                 "updatedAt": firestore.SERVER_TIMESTAMP,
             }
-            fb_client.collection("hives").document(hive_id).set(hive_doc, merge=True)
-    except Exception:
-        pass
+            if audio_file_path:
+                hive_doc["audioFilePath"] = f"/recordings/{Path(audio_file_path).name}"
 
-    # 6. Push accurate telemetry to Firebase Realtime Database
+            # Search all existing hive documents in Firestore and update any that match this device
+            for doc in fb_client.collection("hives").stream():
+                data = doc.to_dict() or {}
+                d_id = str(data.get("deviceId", "")).upper()
+                d_notes = str(data.get("notes", "")).upper()
+                d_name = str(data.get("name", "")).upper()
+                dev_clean = device_id.upper().replace("-", "")
+
+                # Match by deviceId, notes, name, or connecting state
+                if (device_id.upper() in d_id or dev_clean in d_id.replace("-", "") or
+                    device_id.upper() in d_notes or dev_clean in d_notes.replace("-", "") or
+                    device_id.upper() in d_name or
+                    "CONNECT" in str(data.get("updated", "")).upper() or
+                    "QRCODE" in d_id.lower() or "HTTP" in d_id.lower()):
+                    fb_client.collection("hives").document(doc.id).set(hive_doc, merge=True)
+                    print(f"🔥 [FIRESTORE SYNC] Synced live telemetry ({frequency} Hz) to hive doc '{doc.id}' ({data.get('name')})")
+
+            # Always ensure device ID specific doc is also stored
+            hive_id = f"hive_{device_id.lower().replace('-', '_')}"
+            fb_client.collection("hives").document(hive_id).set(hive_doc, merge=True)
+    except Exception as exc:
+        print(f"⚠️ [FIRESTORE SYNC] Error: {exc}")
+
+    # 6. Push accurate telemetry to Firebase Realtime Database (accessible by mobile app globally)
     try:
+        has_buzz = frequency > 0
+        condition = "Queen Present" if (has_buzz and frequency <= 260) else ("Queen Absent" if frequency > 260 else "No Buzz Detected")
+        rtdb_payload = {
+            "device_id": device_id,
+            "deviceId": device_id,
+            "temperature": round(temp, 1),
+            "humidity": round(hum, 1),
+            "battery_level": battery_level,
+            "batteryLevel": f"{battery_level}%",
+            "wifi_rssi": wifi_rssi or -60,
+            "frequency": frequency,
+            "frequency_hz": frequency,
+            "acoustic": f"{frequency} Hz" if has_buzz else "0 Hz",
+            "acousticStatus": "Normal" if has_buzz else "Not Detected (0 Hz)",
+            "acoustic_detected": has_buzz,
+            "conditionLabel": condition,
+            "confidence": 95 if has_buzz else 0,
+            "healthScore": 94 if has_buzz else 0,
+            "queenPresentDetected": has_buzz and frequency <= 260,
+            "queenAbsentDetected": has_buzz and frequency > 260,
+            "queenAcceptedDetected": False,
+            "queenRejectedDetected": False,
+            "temp_detected": temp > 0.0,
+            "hum_detected": hum > 0.0,
+            "status": "online",
+            "wifiStatus": "Connected",
+            "timestamp": "Now",
+            "updated": "Just now",
+        }
+        if audio_file_path:
+            rtdb_payload["audio_file_path"] = f"/recordings/{Path(audio_file_path).name}"
+            rtdb_payload["audioFilePath"] = f"/recordings/{Path(audio_file_path).name}"
+            rtdb_payload["audio_url"] = f"https://beeware-capstone.onrender.com/recordings/{Path(audio_file_path).name}"
+
+        # Update node telemetry
         rtdb_url = f"https://beeware-beaef-default-rtdb.asia-southeast1.firebasedatabase.app/telemetry/{device_id}.json"
         req = urllib.request.Request(
             rtdb_url,
-            data=json.dumps({
-                "device_id": device_id,
-                "deviceId": device_id,
-                "temperature": round(temp, 1),
-                "humidity": round(hum, 1),
-                "battery_level": battery_level,
-                "wifi_rssi": wifi_rssi or -60,
-                "frequency": frequency,
-                "frequency_hz": frequency,
-                "acoustic": f"{frequency} Hz" if frequency > 0 else "0 Hz",
-                "acoustic_detected": frequency > 0,
-                "temp_detected": temp > 0.0,
-                "hum_detected": hum > 0.0,
-                "status": "online",
-                "timestamp": "Now",
-            }).encode("utf-8"),
+            data=json.dumps(rtdb_payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="PATCH",
         )
         urllib.request.urlopen(req, timeout=3)
-    except Exception:
-        pass
+
+        # Update telemetry history
+        hist_url = f"https://beeware-beaef-default-rtdb.asia-southeast1.firebasedatabase.app/telemetry_history/{device_id}.json"
+        hist_req = urllib.request.Request(
+            hist_url,
+            data=json.dumps({
+                "temperature": round(temp, 1),
+                "humidity": round(hum, 1),
+                "frequency": frequency,
+                "acoustic": f"{frequency} Hz" if has_buzz else "0 Hz",
+                "timestamp": timestamp_str,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(hist_req, timeout=3)
+    except Exception as exc:
+        print(f"⚠️ [RTDB SYNC] Error: {exc}")
 
 
 def send_fcm_telemetry_notification(
