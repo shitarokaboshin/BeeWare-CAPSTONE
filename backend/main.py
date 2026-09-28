@@ -4,6 +4,8 @@ import json
 import socket
 import threading
 import base64
+import struct
+import urllib.request
 import wave
 import sqlite3
 import datetime
@@ -328,6 +330,50 @@ class AlertNotificationRequest(BaseModel):
     )
 
 
+# ======================== ACOUSTIC FREQUENCY (DSP) ENGINE ========================
+def compute_audio_frequency(audio_bytes: bytes, sample_rate: int = 16000) -> int:
+    """Analyzes raw PCM frames, filters DC offset, and extracts dominant fundamental frequency in Hz."""
+    if not audio_bytes or len(audio_bytes) < 400:
+        return 0
+    try:
+        num_samples = len(audio_bytes) // 2
+        samples = struct.unpack(f"{num_samples}h", audio_bytes)
+
+        # Single-pole DC blocker filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
+        y = 0.0
+        prev_x = 0.0
+        filtered = []
+        for x in samples:
+            y = float(x) - prev_x + 0.95 * y
+            prev_x = float(x)
+            filtered.append(y)
+
+        peak = max(abs(s) for s in filtered)
+        if peak < 800.0:
+            return 0  # Below noise threshold / silence
+
+        thresh = max(300.0, peak * 0.1)
+        zc = 0
+        prev_sign = 0
+        for s in filtered:
+            sign = 1 if s > thresh else (-1 if s < -thresh else 0)
+            if sign != 0 and prev_sign != 0 and sign != prev_sign:
+                zc += 1
+            if sign != 0:
+                prev_sign = sign
+
+        duration = num_samples / sample_rate
+        if duration <= 0:
+            return 0
+        freq = (zc / 2.0) / duration
+        if 80.0 <= freq <= 1200.0:
+            return int(round(freq))
+        return 0
+    except Exception as exc:
+        print(f"⚠️ Audio frequency analysis error: {exc}")
+        return 0
+
+
 # ======================== BACKGROUND AUDIO & TELEMETRY PROCESSOR ========================
 def process_telemetry_background(
     device_id: str,
@@ -373,6 +419,13 @@ def process_telemetry_background(
                     latest_wav.setsampwidth(2)
                     latest_wav.setframerate(sample_rate)
                     latest_wav.writeframes(audio_bytes)
+
+                # Analyze acoustic frequency directly from recorded audio
+                computed_freq = compute_audio_frequency(audio_bytes, sample_rate)
+                if computed_freq > 0:
+                    print(f"🎵 [DSP ANALYSIS] Detected acoustic frequency: {computed_freq} Hz (reported: {frequency} Hz)")
+                    if frequency == 0 or frequency < 80:
+                        frequency = computed_freq
             else:
                 print(f"ℹ️ [NO AUDIO] Empty audio payload received.")
         except Exception as exc:
@@ -429,6 +482,34 @@ def process_telemetry_background(
                 "updatedAt": firestore.SERVER_TIMESTAMP,
             }
             fb_client.collection("hives").document(hive_id).set(hive_doc, merge=True)
+    except Exception:
+        pass
+
+    # 6. Push accurate telemetry to Firebase Realtime Database
+    try:
+        rtdb_url = f"https://beeware-beaef-default-rtdb.asia-southeast1.firebasedatabase.app/telemetry/{device_id}.json"
+        req = urllib.request.Request(
+            rtdb_url,
+            data=json.dumps({
+                "device_id": device_id,
+                "deviceId": device_id,
+                "temperature": round(temp, 1),
+                "humidity": round(hum, 1),
+                "battery_level": battery_level,
+                "wifi_rssi": wifi_rssi or -60,
+                "frequency": frequency,
+                "frequency_hz": frequency,
+                "acoustic": f"{frequency} Hz" if frequency > 0 else "0 Hz",
+                "acoustic_detected": frequency > 0,
+                "temp_detected": temp > 0.0,
+                "hum_detected": hum > 0.0,
+                "status": "online",
+                "timestamp": "Now",
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PATCH",
+        )
+        urllib.request.urlopen(req, timeout=3)
     except Exception:
         pass
 

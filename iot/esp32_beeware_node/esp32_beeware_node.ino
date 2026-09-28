@@ -155,8 +155,8 @@ void readDHTSensor(float &temp, float &hum) {
 }
 
 // ======================== MEASURE ACOUSTIC LEVEL & FREQUENCY (INMP441) ========================
-// Samples INMP441 I2S microphone, calculates peak amplitude and fundamental dominant frequency in Hz
-// via zero-crossing rate (ZCR) with noise gating. If no sound or microphone is disconnected, returns 0 Hz.
+// Samples INMP441 I2S microphone, removes hardware DC offset with a high-pass DC blocker filter,
+// and calculates fundamental dominant frequency in Hz via zero-crossing rate (ZCR).
 void measureAcoustics(int32_t &peakVal, int &freqHz) {
   peakVal = 0;
   freqHz = 0;
@@ -171,7 +171,10 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
   size_t samplesReadTotal = 0;
   uint32_t startMs = millis();
 
-  const int32_t NOISE_THRESHOLD = 45; // Noise gate threshold to reject baseline ADC jitter
+  // DC Blocker filter state to remove INMP441 -4200 DC offset
+  float prev_x = 0.0f;
+  float filtered_y = 0.0f;
+  float maxPeak = 0.0f;
   int zeroCrossings = 0;
   int prevSign = 0;
 
@@ -186,16 +189,22 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
       for (size_t i = 0; i < count; i++) {
         int32_t sample = chunkRaw[i] >> 14;
         sample = sample * VOLUME_GAIN;
-        int32_t absSample = abs(sample);
-        if (absSample > peakVal) {
-          peakVal = absSample;
+
+        // Apply single-pole DC-blocker high-pass filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
+        filtered_y = (float)sample - prev_x + 0.95f * filtered_y;
+        prev_x = (float)sample;
+
+        float absVal = fabsf(filtered_y);
+        if (absVal > maxPeak) {
+          maxPeak = absVal;
         }
 
-        // Zero-crossing detector with hysteresis
+        // Noise gate hysteresis threshold (reject baseline electrical noise)
+        float noiseThresh = 300.0f;
         int sign = 0;
-        if (sample > NOISE_THRESHOLD) {
+        if (filtered_y > noiseThresh) {
           sign = 1;
-        } else if (sample < -NOISE_THRESHOLD) {
+        } else if (filtered_y < -noiseThresh) {
           sign = -1;
         }
 
@@ -210,21 +219,22 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
     }
   }
 
-  // Calculate dominant frequency in Hz
-  // Honeybee piping & colony buzz typically falls between 100 Hz and 1000 Hz.
-  // If peak is below noise floor or zero-crossings are insufficient, frequency is 0 (not detected / silent).
-  if (peakVal < 60 || zeroCrossings < 8 || samplesReadTotal == 0) {
+  peakVal = (int32_t)maxPeak;
+
+  // Honeybee piping & colony buzz typically falls between 80 Hz and 1200 Hz.
+  // If peak is below ambient threshold or zero-crossings are insufficient, report 0 (silent / not detected).
+  if (maxPeak < 800.0f || zeroCrossings < 15 || samplesReadTotal == 0) {
     freqHz = 0;
-    Serial.println("⚠️ [SENSOR NOT DETECTED] INMP441 acoustic signal not detected (0 Hz / silent)!");
+    Serial.printf("⚠️ [ACOUSTIC SENSOR] Sound below threshold (Peak: %.0f, ZC: %d) — 0 Hz / No Buzz Detected\n", maxPeak, zeroCrossings);
   } else {
     float durationSec = (float)samplesReadTotal / (float)SAMPLE_RATE;
     float calculatedHz = (zeroCrossings / 2.0f) / durationSec;
-    if (calculatedHz < 40.0f || calculatedHz > 3500.0f) {
+    if (calculatedHz < 80.0f || calculatedHz > 1200.0f) {
       freqHz = 0;
-      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency: %.1f Hz — reporting 0 Hz\n", calculatedHz);
+      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency: %.1f Hz (Peak: %.0f) — reporting 0 Hz\n", calculatedHz, maxPeak);
     } else {
       freqHz = (int)round(calculatedHz);
-      Serial.printf("🔊 Acoustic Dominant Frequency: %d Hz (Peak Amplitude: %d)\n", freqHz, peakVal);
+      Serial.printf("🔊 Acoustic Dominant Frequency: %d Hz (Peak Amplitude: %d, ZC: %d)\n", freqHz, peakVal, zeroCrossings);
     }
   }
 }
