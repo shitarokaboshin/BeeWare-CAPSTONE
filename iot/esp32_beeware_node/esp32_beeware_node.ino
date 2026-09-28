@@ -35,7 +35,7 @@ const char* API_KEY       = "beeware_secret_key_default";
 #define USE_DEEP_SLEEP      false     // false = Active Cooldown Loop (recommended for bench testing/USB); true = Deep Sleep
 #define RECORD_TIME_SECONDS 3.0       // 3.0 full seconds of audio
 #define SAMPLE_RATE         16000     // Full 16kHz studio sample rate
-#define VOLUME_GAIN         4         // Digital gain boost
+#define VOLUME_GAIN         1         // Digital gain (1 = clean, unclipped)
 
 // INMP441 I2S Pins
 #define I2S_WS              25        // Word Select (WS / LRCL)
@@ -171,7 +171,8 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
   size_t samplesReadTotal = 0;
   uint32_t startMs = millis();
 
-  // DC Blocker filter state to remove INMP441 -4200 DC offset
+  // Filter states: IIR low-pass smoothing + DC blocker to isolate fundamental bee buzz
+  float lpf = 0.0f;
   float prev_x = 0.0f;
   float filtered_y = 0.0f;
   float maxPeak = 0.0f;
@@ -187,12 +188,14 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
     if (err == ESP_OK && bytesRead > 0) {
       size_t count = bytesRead / sizeof(int32_t);
       for (size_t i = 0; i < count; i++) {
-        int32_t sample = chunkRaw[i] >> 14;
-        sample = sample * VOLUME_GAIN;
+        int32_t sample = (chunkRaw[i] >> 14) * VOLUME_GAIN;
 
-        // Apply single-pole DC-blocker high-pass filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
-        filtered_y = (float)sample - prev_x + 0.95f * filtered_y;
-        prev_x = (float)sample;
+        // 1. Single-pole IIR lowpass filter (cutoff ~550 Hz) eliminates treble harmonics & clipping spikes:
+        lpf = 0.15f * (float)sample + 0.85f * lpf;
+
+        // 2. Single-pole DC-blocker high-pass filter: y[n] = x[n] - x[n-1] + 0.95 * y[n-1]
+        filtered_y = lpf - prev_x + 0.95f * filtered_y;
+        prev_x = lpf;
 
         float absVal = fabsf(filtered_y);
         if (absVal > maxPeak) {
@@ -200,7 +203,7 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
         }
 
         // Noise gate hysteresis threshold (reject baseline electrical noise)
-        float noiseThresh = 400.0f;
+        float noiseThresh = 300.0f;
         int sign = 0;
         if (filtered_y > noiseThresh) {
           sign = 1;
@@ -221,18 +224,18 @@ void measureAcoustics(int32_t &peakVal, int &freqHz) {
 
   peakVal = (int32_t)maxPeak;
 
-  // Honeybee worker buzz & queen piping strictly falls between 120 Hz and 450 Hz.
-  // If peak is below ambient threshold (silence) or zero-crossings are insufficient, report 0 Hz (No Buzz Detected).
-  if (maxPeak < 900.0f || zeroCrossings < 15 || samplesReadTotal == 0) {
+  // Silence vs Buzz Detection:
+  // If peak is below ambient threshold (quiet room) or zero-crossings are insufficient, report 0 Hz (No Buzz Detected).
+  if (maxPeak < 500.0f || zeroCrossings < 15 || samplesReadTotal == 0) {
     freqHz = 0;
-    Serial.printf("⚠️ [ACOUSTIC SENSOR] Sound below threshold (Peak: %.0f, ZC: %d) — 0 Hz / No Buzz Detected\n", maxPeak, zeroCrossings);
+    Serial.printf("⚠️ [ACOUSTIC SENSOR] Silence / sound below threshold (Peak: %.0f, ZC: %d) — 0 Hz / No Buzz Detected\n", maxPeak, zeroCrossings);
   } else {
     float durationSec = (float)samplesReadTotal / (float)SAMPLE_RATE;
     float calculatedHz = (zeroCrossings / 2.0f) / durationSec;
-    // Strictly validate within biological honeybee frequency range (120 - 450 Hz):
-    if (calculatedHz < 120.0f || calculatedHz > 450.0f) {
+    // Biological honeybee acoustic range (worker buzz, fanning, queen piping): 100 Hz to 650 Hz
+    if (calculatedHz < 100.0f || calculatedHz > 650.0f) {
       freqHz = 0;
-      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency (120-450 Hz): %.1f Hz (Peak: %.0f) — reporting 0 Hz / No Buzz Detected\n",
+      Serial.printf("⚠️ [ACOUSTIC FILTER] Out-of-range frequency (100-650 Hz): %.1f Hz (Peak: %.0f) — reporting 0 Hz / No Buzz Detected\n",
                     calculatedHz, maxPeak);
     } else {
       freqHz = (int)round(calculatedHz);
